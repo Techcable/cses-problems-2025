@@ -111,6 +111,11 @@ mod test {
     }
 
     #[test]
+    fn timeout_large_input() {
+        expect_valid_permutation(247250)
+    }
+
+    #[test]
     fn no_permutations_2_or_3() {
         assert_eq!(exhaustively_find_beautiful_permutation(2), None);
         assert_eq!(exhaustively_find_beautiful_permutation(3), None);
