@@ -1,0 +1,20 @@
+
+skip_output:
+  - meta
+  - success
+  - summary
+pre-commit:
+  parallel: true
+  commands:
+    rustfmt:
+      tags: formatter
+      run: cargo fmt --all --check
+    typos:
+      tags: spellcheck
+      run: uvx typos@1.35 --force-exclude --format=brief -- {staged_files}
+commit-msg:
+  commands:
+    typos-commit:
+      tags: spellcheck
+      # Runs on latest version rather than pined one, since the commit is new data
+      run: uvx typos -- {1}
