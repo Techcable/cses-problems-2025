@@ -5,3 +5,7 @@ check:
 format:
     cargo fmt --all
     typos
+
+test:
+    cargo clippy --all
+    cargo test --all
