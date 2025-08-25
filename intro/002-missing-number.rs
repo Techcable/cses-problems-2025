@@ -2,7 +2,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
     let mut lines = input.lines();
     let n = lines.next().unwrap().trim().parse::<u64>()?;
-    let numbers = lines.next().unwrap().split_whitespace()
+    let numbers = lines
+        .next()
+        .unwrap()
+        .split_whitespace()
         .map(|x| x.parse::<u64>())
         .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(lines.next(), None);
@@ -32,18 +35,12 @@ mod test {
 
     #[test]
     fn example() {
-        assert_eq!(
-            find_missing_numbers(5, &[2, 3, 1, 5]),
-            4
-        );
+        assert_eq!(find_missing_numbers(5, &[2, 3, 1, 5]), 4);
     }
 
     #[test]
     fn insufficient_entries() {
-        assert_eq!(
-            find_missing_numbers(5, &[1, 2, 3, 4]),
-            5
-        );
+        assert_eq!(find_missing_numbers(5, &[1, 2, 3, 4]), 5);
     }
 
     #[test]
