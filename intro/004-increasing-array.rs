@@ -16,12 +16,13 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn moves_needed(nums: &[u64]) -> u64 {
     let mut moves = 0;
     let mut iter = nums.iter();
-    let mut last = iter.next().unwrap();
+    let mut lower_bound = iter.next().unwrap();
     for x in iter {
-        if x < last {
-            moves += last - x;
+        if x < lower_bound {
+            moves += lower_bound - x;
+        } else {
+            lower_bound = x;
         }
-        last = x;
     }
     moves
 }
