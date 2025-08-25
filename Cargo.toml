@@ -6,12 +6,12 @@ resolver = "2"
 version = "0.0.0"
 edition = "2021"
 authors = ["Techcable <git@techcable.net>"]
-# What CSES suports - https://cses.fi/howto/
+# What CSES supports - https://cses.fi/howto/
 rust-version = "1.75"
 publish = false
 
 [workspace.dependencies]
-# What CSES suports - https://cses.fi/howto/
+# What CSES supports - https://cses.fi/howto/
 rand = "=0.8.4"
 
 [workspace.lints.clippy]

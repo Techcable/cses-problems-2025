@@ -1,0 +1,3 @@
+[toolchain]
+# What CSES supports - https://cses.fi/howto/
+channel = "1.75"
