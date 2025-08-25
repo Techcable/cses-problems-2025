@@ -16,6 +16,7 @@ rand = "=0.8.4"
 
 # Useful for testing
 itertools = "0.14"
+proptest = "1"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
@@ -34,3 +35,12 @@ fn-to-numeric-cast-any = "deny"
 fn-to-numeric-cast-with-truncation = "deny"
 cast-lossless = "allow" # lossless casts are fine, lints will catch if types change
 ptr_as_ptr = "allow" # pointer casts are fine as long as they don't violate another rule
+
+
+#
+# excessively pedantic (even for clippy::pedantic)
+#
+missing-errors-doc = "allow"
+missing-panics-doc = "allow"
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
