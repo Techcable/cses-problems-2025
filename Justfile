@@ -11,4 +11,4 @@ check-format:
 
 test: && check-format
     cargo clippy --all
-    cargo test --all
+    cargo nextest run --all
