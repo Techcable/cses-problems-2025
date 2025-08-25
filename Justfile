@@ -6,7 +6,7 @@ format:
     typos
 
 check-format:
-    cargo fmt --all
+    cargo fmt --check --all
     typos
 
 test: && check-format
