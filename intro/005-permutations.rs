@@ -3,6 +3,8 @@
 //! Since inputs can be up to 1 million,
 //! it is not computationally feasible to check all `10^6!` possibilities
 
+use std::collections::VecDeque;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
     let input = input.trim().parse::<u32>()?;
@@ -36,18 +38,17 @@ fn find_beautiful_permutation(n: u32) -> Result<Vec<u32>, MissingBeautifulPermut
             Err(MissingBeautifulPermutation(n))
         }
         _ => {
-            let mut perm = vec![2, 4, 1, 3];
+            let mut perm = VecDeque::<u32>::from([2, 4, 1, 3]);
             while perm.len() < n as usize {
                 let new_element = u32::try_from(perm.len() + 1).unwrap();
-                if is_conflicting(*perm.last().unwrap(), new_element) {
-                    perm.reverse();
-                    assert!(!is_conflicting(*perm.last().unwrap(), new_element));
-                    perm.push(new_element);
+                if is_conflicting(*perm.back().unwrap(), new_element) {
+                    assert!(!is_conflicting(*perm.front().unwrap(), new_element));
+                    perm.push_front(new_element);
                 } else {
-                    perm.push(new_element);
+                    perm.push_back(new_element);
                 }
             }
-            Ok(perm)
+            Ok(perm.iter().copied().collect())
         }
     }
 }
