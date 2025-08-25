@@ -1,3 +1,9 @@
+#![allow(
+    // already submitted
+    clippy::redundant_closure_for_method_calls,
+    clippy::stable_sort_primitive,
+)]
+
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
     let mut lines = input.lines();

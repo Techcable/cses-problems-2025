@@ -9,3 +9,6 @@ publish.workspace = true
 
 [dependencies]
 rand.workspace = true
+
+[lints]
+workspace = true
