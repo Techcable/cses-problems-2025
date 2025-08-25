@@ -20,7 +20,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn value_at(target: Pos) -> u32 {
+fn value_at(target: Pos) -> u64 {
     let radius = target.radius();
     let start = radius.start();
     let (start, target) = match radius.direction() {
@@ -37,17 +37,17 @@ fn value_at(target: Pos) -> u32 {
     assert_eq!(start.pos.row(), 0, "not clockwise: start should be at top");
     if target.row() < radius.index() {
         assert_eq!(target.column(), radius.index());
-        start.value + target.row()
+        start.value + target.row() as u64
     } else {
         assert_eq!(target.row(), radius.index());
         assert!(target.column() <= radius.index());
-        radius.corner_value() + (radius.index() - target.column())
+        radius.corner_value() + (radius.index() - target.column()) as u64
     }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct SpiralEntry {
-    value: u32,
+    value: u64,
     pos: Pos,
 }
 impl SpiralEntry {
@@ -104,9 +104,6 @@ pub const MAX_INPUT: u32 = 10u32.pow(9);
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Radius(u32);
 impl Radius {
-    /// The largest radius that will not cause integer overflow.
-    pub const MAX: Radius = Radius(65535);
-
     /// The zero-based index corresponding to this radius
     #[inline]
     pub fn index(self) -> u32 {
@@ -116,22 +113,12 @@ impl Radius {
     #[inline]
     #[track_caller]
     fn validate(self) -> Self {
-        assert!(
-            (1..=Self::MAX.0).contains(&self.0),
-            "invalid radius {}",
-            self.0
-        );
+        assert!(self.0 > 0, "invalid radius");
         self
     }
 
     #[inline]
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub fn of_value(value: u32) -> Radius {
-        Radius((value as f64).sqrt().round() as u32)
-    }
-
-    #[inline]
-    pub fn start_value(self) -> u32 {
+    pub fn start_value(self) -> u64 {
         self.validate();
         if self.0 == 1 {
             1
@@ -141,13 +128,15 @@ impl Radius {
     }
 
     #[inline]
-    pub fn end_value(self) -> u32 {
+    pub fn end_value(self) -> u64 {
         self.validate();
         // 1x1 checkerboard - 1 entry
         // 2x2 checkerboard - 4 entries
         // 3x3 checkerboard - 9 entries
         // etc...
-        self.0 * self.0
+        //
+        // (u32::MAX as u64) * (u32::MAX as u64) does not overflow
+        (self.0 as u64) * (self.0 as u64)
     }
 
     #[inline]
@@ -169,8 +158,8 @@ impl Radius {
     }
 
     #[inline]
-    pub fn corner_value(&self) -> u32 {
-        self.start_value() + self.index()
+    pub fn corner_value(&self) -> u64 {
+        self.start_value() + self.index() as u64
     }
 
     /// Finds the outer corner for this radius
@@ -232,6 +221,15 @@ mod test {
         assert_eq!(value_at(Pos::from_input(5, 5)), 21);
         assert_eq!(value_at(Pos::from_input(3, 5)), 23);
         assert_eq!(value_at(Pos::from_input(5, 3)), 19);
+    }
+
+    #[test]
+    fn official_2() {
+        // it's just this repeated 100_000 times
+        assert_eq!(
+            value_at(Pos::from_input(1000000000, 1000000000)),
+            999999999000000001
+        );
     }
 
     #[test]
