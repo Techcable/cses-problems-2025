@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::sync::OnceLock;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,7 +15,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 const MAX_INPUT: u32 = 10_000;
 const MAX_BOARD_SPACES: u32 = MAX_INPUT * MAX_INPUT;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct BoardSize(pub u32);
 impl BoardSize {
     fn all_positions(self) -> impl Iterator<Item = Position> + 'static {
@@ -24,9 +25,68 @@ impl BoardSize {
     pub fn count_spaces(&self) -> u32 {
         self.0 * self.0
     }
+    #[inline]
+    pub fn index(&self) -> u32 {
+        self.0 - 1
+    }
 }
 
-#[derive(Copy, Clone, Debug, Ord, Eq, PartialOrd, PartialEq)]
+/// Spirals across the chess board:
+///
+/// Assume the following board with the top left at position (0, 0)
+/// ```
+/// A B
+/// D C
+/// ```
+/// The iterator will give `[A, B, C, D]`
+pub struct BoardSpiralIter {
+    max_size: BoardSize,
+    pos: Option<Position>,
+}
+impl Iterator for BoardSpiralIter {
+    type Item = Position;
+    fn next(&mut self) -> Option<Self::Item> {
+        let old_pos = self.pos?;
+        let current_size = old_pos.needed_size();
+        let new_pos: Option<Position>;
+        if old_pos.row < current_size.index() {
+            new_pos = Some(Position {
+                row: old_pos.row + 1,
+                ..old_pos
+            });
+        } else if old_pos.column > 0 {
+            new_pos = Some(Position {
+                column: old_pos.column - 1,
+                ..old_pos
+            });
+        } else if current_size < self.max_size {
+            // start again at top right of new
+            new_pos = Some(Position {
+                row: 0,
+                column: current_size.index() + 1,
+            });
+        } else {
+            new_pos = None;
+        }
+        self.pos = new_pos;
+        Some(old_pos)
+    }
+}
+impl Ord for Position {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.needed_size().cmp(&other.needed_size()).then_with(|| {
+            self.row
+                .cmp(&other.row)
+                .then(self.column.cmp(&other.column).reverse())
+        })
+    }
+}
+impl PartialOrd for Position {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Position {
     row: u32,
     column: u32,
@@ -34,24 +94,9 @@ pub struct Position {
 impl Position {
     #[inline]
     fn remaining_positions(self, size: BoardSize) -> impl Iterator<Item = Position> + 'static {
-        std::iter::successors(Some(self), move |x| x.next(size))
-    }
-    #[inline]
-    pub fn next(self, size: BoardSize) -> Option<Position> {
-        debug_assert!(self.column < size.0);
-        debug_assert!(self.row < size.0);
-        if self.column + 1 < size.0 {
-            Some(Position {
-                column: self.column + 1,
-                ..self
-            })
-        } else if self.row + 1 < size.0 {
-            Some(Position {
-                column: 0,
-                row: self.row + 1,
-            })
-        } else {
-            None
+        BoardSpiralIter {
+            pos: Some(self),
+            max_size: size,
         }
     }
     #[inline]
@@ -66,6 +111,9 @@ impl Position {
                 .checked_add_signed(offset.column)
                 .filter(|&x| x < size.0)?,
         })
+    }
+    pub fn needed_size(self) -> BoardSize {
+        BoardSize(self.column.max(self.row) + 1)
     }
 }
 #[derive(Copy, Clone, Debug)]
@@ -130,6 +178,29 @@ mod test {
             let size = BoardSize(index as u32 + 1);
             assert_eq!(count_possible_placements(size), expected, "{size:?}");
         }
+    }
+
+    #[test]
+    fn iter_spiral() {
+        const MATRIX2: [[char; 2]; 2] = [
+            ['A', 'B'], // row1
+            ['C', 'D'],
+        ];
+        assert_eq!(
+            BoardSize(2)
+                .all_positions()
+                .map(|x| MATRIX2[x.row as usize][x.column as usize])
+                .collect::<Vec<_>>(),
+            vec!['A', 'B', 'D', 'C']
+        );
+        const MATRIX3: [[char; 3]; 3] = [['A', 'B', 'C'], ['D', 'E', 'F'], ['G', 'H', 'I']];
+        assert_eq!(
+            BoardSize(3)
+                .all_positions()
+                .map(|x| MATRIX3[x.row as usize][x.column as usize])
+                .collect::<Vec<_>>(),
+            vec!['A', 'B', 'E', 'D', 'C', 'F', 'I', 'H', 'G']
+        );
     }
 
     #[test]
