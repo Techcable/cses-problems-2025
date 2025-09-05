@@ -4,9 +4,9 @@ use std::sync::OnceLock;
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
     let input = input.trim().parse::<u32>()?;
-    for x in 1..=input {
-        println!("{}", count_possible_placements(BoardSize(x)));
-    }
+    count_possible_placements(BoardSize(input), &mut |_size, total| {
+        println!("{total}");
+    });
     // just used to ensure nothing overflows a u32
     let _ = MAX_BOARD_SPACES;
     Ok(())
@@ -22,7 +22,7 @@ impl BoardSize {
         Position { row: 0, column: 0 }.remaining_positions(self)
     }
     #[inline]
-    pub fn count_spaces(&self) -> u32 {
+    pub fn available_spaces(&self) -> u32 {
         self.0 * self.0
     }
     #[inline]
@@ -144,8 +144,16 @@ fn knight_movements() -> &'static [Offset; 8] {
     })
 }
 
-pub fn count_possible_placements(size: BoardSize) -> u64 {
-    let spaces = size.count_spaces();
+pub fn count_possible_placements(max_size: BoardSize, func: &mut dyn FnMut(BoardSize, u64)) {
+    for size in (1..=max_size.0).map(BoardSize) {
+        // TODO: Improve this
+        func(size, naive_count_possible_placements(size));
+    }
+}
+
+/// This algorithm works reliably, but duplicates work when several sizes are asked for in sequence.
+pub fn naive_count_possible_placements(size: BoardSize) -> u64 {
+    let spaces = size.available_spaces();
     let mut total = 0u64;
     let movements = knight_movements();
     // there is symmetry here: Knight A can attack knight B iff B can attack knight B
@@ -170,14 +178,27 @@ pub fn count_possible_placements(size: BoardSize) -> u64 {
 
 #[cfg(test)]
 mod test {
-    use super::{count_possible_placements, BoardSize};
+    use super::*;
+
+    const EXAMPLE_EXPECTED: &[u64] = &[0, 6, 28, 96, 252, 550, 1056, 1848];
+    #[test]
+    fn example_naive() {
+        for (index, &expected) in EXAMPLE_EXPECTED.iter().enumerate() {
+            assert_eq!(
+                naive_count_possible_placements(BoardSize(u32::try_from(index).unwrap() + 1)),
+                expected
+            )
+        }
+    }
+
     #[test]
     fn example() {
-        const EXAMPLE_EXPECTED: &[u64] = &[0, 6, 28, 96, 252, 550, 1056, 1848];
-        for (index, &expected) in EXAMPLE_EXPECTED.iter().enumerate() {
-            let size = BoardSize(index as u32 + 1);
-            assert_eq!(count_possible_placements(size), expected, "{size:?}");
-        }
+        let mut res = Vec::new();
+        count_possible_placements(BoardSize(8), &mut |size, count| {
+            assert_eq!(size.index() as usize, res.len());
+            res.push(count);
+        });
+        assert_eq!(res, EXAMPLE_EXPECTED);
     }
 
     #[test]
