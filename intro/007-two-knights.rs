@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::sync::OnceLock;
+use std::ops::Add;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
@@ -29,8 +30,28 @@ impl BoardSize {
     pub fn index(&self) -> u32 {
         self.0 - 1
     }
+    /// Returns the largest position `x` such that `x.needed_size() == self`
+    pub fn last_needed_pos(&self) -> Position {
+        Position {
+            row: self.index(),
+            column: 0,
+        }
+    }
+    /// Returns the smallest position `x` such that `x.needed_size() == self`
+    pub fn first_needed_pos(&self) -> Position {
+        Position {
+            row: 0,
+            column: self.index(),
+        }
+    }
 }
-
+impl Add<u32> for BoardSize {
+    type Output = BoardSize;
+    #[track_caller]
+    fn add(self, rhs: u32) -> Self::Output {
+        BoardSize(self.0.checked_add(rhs).expect("addition overflow"))
+    }
+}
 /// Spirals across the chess board:
 ///
 /// Assume the following board with the top left at position (0, 0)
@@ -39,6 +60,7 @@ impl BoardSize {
 /// D C
 /// ```
 /// The iterator will give `[A, B, C, D]`
+#[derive(Clone)]
 pub struct BoardSpiralIter {
     max_size: BoardSize,
     pos: Option<Position>,
@@ -61,10 +83,7 @@ impl Iterator for BoardSpiralIter {
             });
         } else if current_size < self.max_size {
             // start again at top right of new
-            new_pos = Some(Position {
-                row: 0,
-                column: current_size.index() + 1,
-            });
+            new_pos = Some((current_size + 1).first_needed_pos());
         } else {
             new_pos = None;
         }
@@ -236,6 +255,24 @@ mod test {
                 assert!(y >= x, "{y:?} < {x:?}")
             }
             prev_seen.push(x);
+        }
+    }
+
+    #[test]
+    fn test_size_first_last() {
+        // NOTE: This test assumes that needed_size() works
+        let mut last: Option<Position> = None;
+        for x in BoardSize(5).all_positions() {
+            if let Some(last) = last {
+                if x.needed_size() > last.needed_size() {
+                    assert_eq!(x, x.needed_size().first_needed_pos());
+                    assert_eq!(last.needed_size().last_needed_pos(), last);
+                }
+            } else {
+                assert_eq!(x, BoardSize(1).first_needed_pos());
+                assert_eq!(x, BoardSize(1).last_needed_pos());
+            }
+            last = Some(x);
         }
     }
 }
