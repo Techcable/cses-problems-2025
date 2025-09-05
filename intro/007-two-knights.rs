@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::sync::OnceLock;
-use std::ops::Add;
+use std::ops::{Add, Sub};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
@@ -50,6 +50,14 @@ impl Add<u32> for BoardSize {
     #[track_caller]
     fn add(self, rhs: u32) -> Self::Output {
         BoardSize(self.0.checked_add(rhs).expect("addition overflow"))
+    }
+}
+
+impl Sub<u32> for BoardSize {
+    type Output = BoardSize;
+    #[track_caller]
+    fn sub(self, rhs: u32) -> Self::Output {
+        BoardSize(self.0.checked_sub(rhs).filter(|&x| x >= 1).expect("subtraction underflow"))
     }
 }
 /// Spirals across the chess board:
@@ -164,9 +172,32 @@ fn knight_movements() -> &'static [Offset; 8] {
 }
 
 pub fn count_possible_placements(max_size: BoardSize, func: &mut dyn FnMut(BoardSize, u64)) {
-    for size in (1..=max_size.0).map(BoardSize) {
-        // TODO: Improve this
-        func(size, naive_count_possible_placements(size));
+    let knight_movements = knight_movements();
+    if max_size.0 < 1 {
+        return;
+    }
+    let mut total_possibilities = 0u64;
+    func(BoardSize(1), total_possibilities);
+    for current_size in (2..=max_size.0).map(BoardSize) {
+        let prev_size = current_size - 1;
+        // only iterate over the outer layer of the spiral,
+        // since that is the only one with new positions
+        for (knight_pos, knight_pos_index) in current_size.first_needed_pos().remaining_positions(current_size).zip(prev_size.available_spaces()..) {
+            // valid combos with this position are every previous position
+            let mut valid_combos = knight_pos_index;
+            for &movement in knight_movements {
+                // check if the movement would escape the board
+                if let Some(pos) = knight_pos.checked_offset(movement, current_size) {
+                    if pos > knight_pos {
+                        /* will deal with this later */
+                    } else {
+                        valid_combos -= 1;
+                    }
+                }
+            }
+            total_possibilities += valid_combos as u64;
+        }
+        func(current_size, total_possibilities);
     }
 }
 
