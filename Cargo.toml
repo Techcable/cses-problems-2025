@@ -18,6 +18,11 @@ rand = "=0.8.4"
 itertools = "0.14"
 proptest = "1"
 
+[profile.dev]
+# Increases performance with 007-two-knights(n=5000) from ~10s to ~3s
+# Using opt-level=2 takes ~600ms and opt-level=3 takes ~300ms
+opt-level = 1
+
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 

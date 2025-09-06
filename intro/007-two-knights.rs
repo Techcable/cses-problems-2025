@@ -31,6 +31,7 @@ impl BoardSize {
         self.0 - 1
     }
     /// Returns the largest position `x` such that `x.needed_size() == self`
+    #[inline]
     pub fn last_needed_pos(&self) -> Position {
         Position {
             row: self.index(),
@@ -38,6 +39,7 @@ impl BoardSize {
         }
     }
     /// Returns the smallest position `x` such that `x.needed_size() == self`
+    #[inline]
     pub fn first_needed_pos(&self) -> Position {
         Position {
             row: 0,
