@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
+use std::ops::{Add, RangeInclusive, Sub};
 use std::sync::OnceLock;
-use std::ops::{Add, Sub};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
     let input = input.trim().parse::<u32>()?;
-    count_possible_placements(BoardSize(input), &mut |_size, total| {
+    count_possible_placements(BoardSize::new(input), &mut |_size, total| {
         println!("{total}");
     });
     // just used to ensure nothing overflows a u32
@@ -17,33 +17,57 @@ const MAX_INPUT: u32 = 10_000;
 const MAX_BOARD_SPACES: u32 = MAX_INPUT * MAX_INPUT;
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct BoardSize(pub u32);
+pub struct BoardSize {
+    index: u32,
+}
 impl BoardSize {
-    fn all_positions(self) -> impl Iterator<Item = Position> + 'static {
+    pub const MIN: BoardSize = BoardSize { index: 0 };
+    #[inline]
+    #[track_caller]
+    pub const fn new(value: u32) -> BoardSize {
+        assert!(value >= 1, "invalid size");
+        BoardSize { index: value - 1 }
+    }
+    #[inline]
+    pub const fn from_index(index: u32) -> BoardSize {
+        BoardSize { index }
+    }
+    pub fn all_positions(self) -> impl Iterator<Item = Position> + 'static {
         Position { row: 0, column: 0 }.remaining_positions(self)
     }
     #[inline]
     pub fn available_spaces(&self) -> u32 {
-        self.0 * self.0
+        self.value() * self.value()
     }
     #[inline]
-    pub fn index(&self) -> u32 {
-        self.0 - 1
+    pub fn value(&self) -> u32 {
+        self.index + 1
     }
-    /// Returns the largest position `x` such that `x.needed_size() == self`
     #[inline]
-    pub fn last_needed_pos(&self) -> Position {
-        Position {
-            row: self.index(),
-            column: 0,
+    pub fn max_spiral_index(&self) -> u32 {
+        self.index * 2
+    }
+    #[inline]
+    pub fn fixed_spiral(self) -> FixedSizeSpiral {
+        FixedSizeSpiral {
+            counter: 0..=self.max_spiral_index(),
+            size: self,
         }
     }
-    /// Returns the smallest position `x` such that `x.needed_size() == self`
+    /// Return the position corresponding to the specified spiral index.
+    ///
+    /// Used to implement [`FixedSizeSpiral`] and [`BoardSpiral`].
+    ///
+    /// Starts from the top right, goes down then turns left after hitting the bottom.
     #[inline]
-    pub fn first_needed_pos(&self) -> Position {
+    pub fn pos_at_spiral_index(self, index: u32) -> Position {
+        let max_spiral_index = self.max_spiral_index();
+        assert!(index <= max_spiral_index);
         Position {
-            row: 0,
-            column: self.index(),
+            // column should decrease once `index > self.index`
+            column: (max_spiral_index - index).min(self.index),
+            // row should increase until we hit the maximum
+            row: index.min(self.index),
         }
     }
 }
@@ -51,7 +75,7 @@ impl Add<u32> for BoardSize {
     type Output = BoardSize;
     #[track_caller]
     fn add(self, rhs: u32) -> Self::Output {
-        BoardSize(self.0.checked_add(rhs).expect("addition overflow"))
+        BoardSize::from_index(self.index.checked_add(rhs).expect("addition overflow"))
     }
 }
 
@@ -59,9 +83,41 @@ impl Sub<u32> for BoardSize {
     type Output = BoardSize;
     #[track_caller]
     fn sub(self, rhs: u32) -> Self::Output {
-        BoardSize(self.0.checked_sub(rhs).filter(|&x| x >= 1).expect("subtraction underflow"))
+        BoardSize::from_index(self.index.checked_sub(rhs).expect("subtraction underflow"))
     }
 }
+
+/// An iterator that spirals over the entries of a fixed [`BoardSize`].
+///
+/// Used to implement [`Position::remaining_positions`] and [`BoardSpiral`].
+#[derive(Clone)]
+pub struct FixedSizeSpiral {
+    counter: RangeInclusive<u32>,
+    size: BoardSize,
+}
+impl Iterator for FixedSizeSpiral {
+    type Item = Position;
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.counter
+            .next()
+            .map(|index| self.size.pos_at_spiral_index(index))
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.counter.size_hint()
+    }
+}
+impl DoubleEndedIterator for FixedSizeSpiral {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.counter
+            .next_back()
+            .map(|index| self.size.pos_at_spiral_index(index))
+    }
+}
+impl ExactSizeIterator for FixedSizeSpiral {}
+
 /// Spirals across the chess board:
 ///
 /// Assume the following board with the top left at position (0, 0)
@@ -71,34 +127,25 @@ impl Sub<u32> for BoardSize {
 /// ```
 /// The iterator will give `[A, B, C, D]`
 #[derive(Clone)]
-pub struct BoardSpiralIter {
+pub struct BoardSpiral {
+    current_spiral: FixedSizeSpiral,
     max_size: BoardSize,
-    pos: Option<Position>,
 }
-impl Iterator for BoardSpiralIter {
+impl Iterator for BoardSpiral {
     type Item = Position;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let old_pos = self.pos?;
-        let current_size = old_pos.needed_size();
-        let new_pos: Option<Position>;
-        if old_pos.row < current_size.index() {
-            new_pos = Some(Position {
-                row: old_pos.row + 1,
-                ..old_pos
-            });
-        } else if old_pos.column > 0 {
-            new_pos = Some(Position {
-                column: old_pos.column - 1,
-                ..old_pos
-            });
-        } else if current_size < self.max_size {
-            // start again at top right of new
-            new_pos = Some((current_size + 1).first_needed_pos());
-        } else {
-            new_pos = None;
+        match self.current_spiral.next() {
+            Some(res) => Some(res),
+            None => {
+                if self.current_spiral.size < self.max_size {
+                    self.current_spiral = (self.current_spiral.size + 1).fixed_spiral();
+                    Some(self.current_spiral.next().unwrap())
+                } else {
+                    None
+                }
+            }
         }
-        self.pos = new_pos;
-        Some(old_pos)
     }
 }
 impl Ord for Position {
@@ -122,10 +169,14 @@ pub struct Position {
 }
 impl Position {
     #[inline]
-    fn remaining_positions(self, size: BoardSize) -> impl Iterator<Item = Position> + 'static {
-        BoardSpiralIter {
-            pos: Some(self),
-            max_size: size,
+    fn remaining_positions(self, max_size: BoardSize) -> impl Iterator<Item = Position> + 'static {
+        let current_size = self.needed_size();
+        BoardSpiral {
+            current_spiral: FixedSizeSpiral {
+                size: current_size,
+                counter: self.determine_spiral_index()..=current_size.max_spiral_index(),
+            },
+            max_size,
         }
     }
     #[inline]
@@ -134,15 +185,32 @@ impl Position {
             row: self
                 .row
                 .checked_add_signed(offset.row)
-                .filter(|&x| x < size.0)?,
+                .filter(|&x| x <= size.index)?,
             column: self
                 .column
                 .checked_add_signed(offset.column)
-                .filter(|&x| x < size.0)?,
+                .filter(|&x| x <= size.index)?,
         })
     }
+    #[inline]
     pub fn needed_size(self) -> BoardSize {
-        BoardSize(self.column.max(self.row) + 1)
+        BoardSize::from_index(self.column.max(self.row))
+    }
+    /// Determine the spiral index for this position within
+    /// the spiral returned by calling [`BoardSize::fixed_spiral`] on [`Self::needed_size`].
+    ///
+    /// This is the opposite of [`BoardSize::pos_at_spiral_index`].
+    #[inline]
+    pub fn determine_spiral_index(self) -> u32 {
+        if self.row <= self.column {
+            // going down
+            self.row
+        } else {
+            // going left (column decreasing, row=needed_size)
+            let size = self.needed_size();
+            debug_assert_eq!(size.index, self.row);
+            size.index + (size.index - self.column)
+        }
     }
 }
 #[derive(Copy, Clone, Debug)]
@@ -175,16 +243,19 @@ fn knight_movements() -> &'static [Offset; 8] {
 
 pub fn count_possible_placements(max_size: BoardSize, func: &mut dyn FnMut(BoardSize, u64)) {
     let knight_movements = knight_movements();
-    if max_size.0 < 1 {
+    if max_size.value() < 1 {
         return;
     }
     let mut total_possibilities = 0u64;
-    func(BoardSize(1), total_possibilities);
-    for current_size in (2..=max_size.0).map(BoardSize) {
+    func(BoardSize::MIN, total_possibilities);
+    for current_size in (2..=max_size.value()).map(BoardSize::new) {
         let prev_size = current_size - 1;
         // only iterate over the outer layer of the spiral,
         // since that is the only one with new positions
-        for (knight_pos, knight_pos_index) in current_size.first_needed_pos().remaining_positions(current_size).zip(prev_size.available_spaces()..) {
+        for (knight_pos, knight_pos_index) in current_size
+            .fixed_spiral()
+            .zip(prev_size.available_spaces()..)
+        {
             // valid combos with this position are every previous position
             let mut valid_combos = knight_pos_index;
             for &movement in knight_movements {
@@ -237,17 +308,19 @@ mod test {
     fn example_naive() {
         for (index, &expected) in EXAMPLE_EXPECTED.iter().enumerate() {
             assert_eq!(
-                naive_count_possible_placements(BoardSize(u32::try_from(index).unwrap() + 1)),
+                naive_count_possible_placements(BoardSize::from_index(
+                    u32::try_from(index).unwrap()
+                )),
                 expected
-            )
+            );
         }
     }
 
     #[test]
     fn example() {
         let mut res = Vec::new();
-        count_possible_placements(BoardSize(8), &mut |size, count| {
-            assert_eq!(size.index() as usize, res.len());
+        count_possible_placements(BoardSize::new(8), &mut |size, count| {
+            assert_eq!(size.index as usize, res.len());
             res.push(count);
         });
         assert_eq!(res, EXAMPLE_EXPECTED);
@@ -260,7 +333,7 @@ mod test {
             ['C', 'D'],
         ];
         assert_eq!(
-            BoardSize(2)
+            BoardSize::new(2)
                 .all_positions()
                 .map(|x| MATRIX2[x.row as usize][x.column as usize])
                 .collect::<Vec<_>>(),
@@ -268,7 +341,7 @@ mod test {
         );
         const MATRIX3: [[char; 3]; 3] = [['A', 'B', 'C'], ['D', 'E', 'F'], ['G', 'H', 'I']];
         assert_eq!(
-            BoardSize(3)
+            BoardSize::new(3)
                 .all_positions()
                 .map(|x| MATRIX3[x.row as usize][x.column as usize])
                 .collect::<Vec<_>>(),
@@ -278,33 +351,78 @@ mod test {
 
     #[test]
     fn iter_order() {
-        let size = BoardSize(5);
+        let size = BoardSize::new(5);
         let mut prev_seen = Vec::new();
         for x in size.all_positions() {
             for &y in &prev_seen {
                 assert!(y < x);
             }
             for y in x.remaining_positions(size) {
-                assert!(y >= x, "{y:?} < {x:?}")
+                assert!(y >= x, "{y:?} < {x:?}");
             }
             prev_seen.push(x);
         }
     }
 
     #[test]
-    fn test_size_first_last() {
+    fn test_fixed_spiral_endpoints() {
+        for size in (BoardSize::MIN.value()..=10).map(BoardSize::new) {
+            let start = Position {
+                row: 0,
+                column: size.index,
+            };
+            let end = Position {
+                row: size.index,
+                column: 0,
+            };
+            let corner = Position {
+                row: size.index,
+                column: size.index,
+            };
+            assert_eq!(start, size.pos_at_spiral_index(0), "{size:?}");
+            assert_eq!(
+                end,
+                size.pos_at_spiral_index(size.max_spiral_index()),
+                "{size:?}"
+            );
+            assert_eq!(corner, size.pos_at_spiral_index(size.index), "{size:?}");
+            if size.index > 0 {
+                assert_eq!(
+                    start
+                        .checked_offset(Offset { row: 1, column: 0 }, size)
+                        .unwrap(),
+                    size.pos_at_spiral_index(1)
+                );
+                assert_eq!(
+                    end.checked_offset(Offset { row: 0, column: 1 }, size)
+                        .unwrap(),
+                    size.pos_at_spiral_index(size.max_spiral_index() - 1)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_spiral_index() {
         // NOTE: This test assumes that needed_size() works
         let mut last: Option<Position> = None;
-        for x in BoardSize(5).all_positions() {
+        for x in BoardSize::new(5).all_positions() {
             if let Some(last) = last {
                 if x.needed_size() > last.needed_size() {
-                    assert_eq!(x, x.needed_size().first_needed_pos());
-                    assert_eq!(last.needed_size().last_needed_pos(), last);
+                    assert_eq!(x, x.needed_size().pos_at_spiral_index(0));
+                    assert_eq!(
+                        last.needed_size()
+                            .pos_at_spiral_index(last.needed_size().max_spiral_index()),
+                        last
+                    );
                 }
             } else {
-                assert_eq!(x, BoardSize(1).first_needed_pos());
-                assert_eq!(x, BoardSize(1).last_needed_pos());
+                assert_eq!(BoardSize::MIN.max_spiral_index(), 0);
+                assert_eq!(x, BoardSize::MIN.pos_at_spiral_index(0));
+                assert_eq!(x, BoardSize::MIN.pos_at_spiral_index(0));
             }
+            let spiral_index = x.determine_spiral_index();
+            assert_eq!(x.needed_size().pos_at_spiral_index(spiral_index), x);
             last = Some(x);
         }
     }
