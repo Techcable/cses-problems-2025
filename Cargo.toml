@@ -23,6 +23,12 @@ proptest = "1"
 # Using opt-level=2 takes ~600ms and opt-level=3 takes ~300ms
 opt-level = 1
 
+[profile.release]
+# Reduces performance of 007-two-knights(n=10_000) by 10%, but panic="abort" reduces this to only 6%
+overflow-checks = true
+panic = "abort"
+lto = true
+
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 
