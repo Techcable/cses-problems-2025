@@ -26,6 +26,7 @@ pub fn weird_algorithm(mut x: u64, mut output: impl FnMut(u64)) {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::pedantic, clippy::all)] // already submitted & written before clippy was run with --tests
     use super::weird_algorithm;
 
     fn weird_algorithm_vec(x: u64) -> Vec<u64> {

@@ -23,6 +23,7 @@ fn longest_run(s: &str) -> usize {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::pedantic, clippy::all)] // already submitted & written before clippy was run with --tests
     use super::longest_run;
 
     #[test]

@@ -37,6 +37,7 @@ fn find_missing_numbers(n: u64, nums: &[u64]) -> u64 {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::pedantic, clippy::all)] // already submitted & written before clippy was run with --tests
     use super::find_missing_numbers;
 
     #[test]

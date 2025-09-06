@@ -34,6 +34,7 @@ fn moves_needed(nums: &[u64]) -> u64 {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::pedantic, clippy::all)] // already submitted & written before clippy was run with --tests
     use super::*;
 
     #[test]
