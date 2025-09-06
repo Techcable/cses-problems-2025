@@ -219,30 +219,36 @@ pub struct Offset {
     column: i32,
 }
 
-static KNIGHT_MOVEMENTS: OnceLock<[Offset; 8]> = OnceLock::new();
-fn knight_movements() -> &'static [Offset; 8] {
-    KNIGHT_MOVEMENTS.get_or_init(|| {
-        let mut res = [Offset { row: 0, column: 0 }; 8];
-        let mut idx = 0;
-        for row_magnitude in [1, 2] {
-            let col_magnitude = 3 - row_magnitude;
-            for row_dir in [-1, 1] {
-                for col_dir in [-1, 1] {
-                    res[idx] = Offset {
-                        row: row_magnitude * row_dir,
-                        column: col_magnitude * col_dir,
-                    };
-                    idx += 1;
-                }
-            }
-        }
-        assert!(idx == res.len());
-        res
-    })
+macro_rules! const_for {
+    (for $name:ident in [$($item:expr),*] $body:block) => {
+        $({
+            let $name = $item;
+            $body
+        })*
+    };
 }
+static KNIGHT_MOVEMENTS: [Offset; 8] = {
+    let mut res = [Offset { row: 0, column: 0 }; 8];
+    let mut idx = 0;
+    const_for!(for row_magnitude in [1, 2] {
+        let col_magnitude = 3 - row_magnitude;
+        const_for!(for row_dir in [-1, 1] {
+            const_for!(for col_dir in [-1, 1] {
+                res[idx] = Offset {
+                    row: row_magnitude * row_dir,
+                    column: col_magnitude * col_dir,
+                };
+                idx += 1;
+            });
+        });
+    });
+    assert!(idx == res.len());
+    res
+};
 
+const AWAY_FROM_CORNERS_DIST: u32 = 3;
+const AWAY_FROM_CORNERS_VALID_MOVEMENTS: u32 = 0;
 pub fn count_possible_placements(max_size: BoardSize, func: &mut dyn FnMut(BoardSize, u64)) {
-    let knight_movements = knight_movements();
     if max_size.value() < 1 {
         return;
     }
@@ -250,15 +256,39 @@ pub fn count_possible_placements(max_size: BoardSize, func: &mut dyn FnMut(Board
     func(BoardSize::MIN, total_possibilities);
     for current_size in (2..=max_size.value()).map(BoardSize::new) {
         let prev_size = current_size - 1;
-        // only iterate over the outer layer of the spiral,
-        // since that is the only one with new positions
-        for (knight_pos, knight_pos_index) in current_size
+        // the naive implementation has two nested loops
+        // In pseudocode:
+        // ```
+        // let already_handled = set();
+        // for knight1_pos in prev_size.fixed_spiral() {
+        //      let = [possible placements of knight 2 without considering attacks];
+        //      for moved_pos in possible_movements(knight_pos) {
+        //          if moved_pos not in already_handled {
+        //              /* a knight can attach from , so it is
+        //          }
+        //      }
+        //      already_handled.add(knight1_pos)
+        // }
+        // ```
+        //
+        // When the size is large, most of these inner two iterations
+        // are spent far from the edges and corner of the board.
+        // In this case, the knight has exactly 4 possible movements that do not fall off the edge of the board.
+        // This eliminates the need to check for overflowing positions (done by possible_movements function in pseudocode).
+        // Exactly two of those movements were to places already handled by previous iterations, eliminating the need to check the hashset.
+        // Note that  even the "naive" implementation takes advantage of total ordering of a Position wrt the spiral to avoid the hashset.
+        //
+        // This reasoning is verified by a test, which ensures that away from the edges of the board,
+        // there are exactly two valid positions to move to that have not already been moved to
+        for ((knight_pos, knight_pos_index), spiral_index) in current_size
             .fixed_spiral()
             .zip(prev_size.available_spaces()..)
+            .zip(0u32..)
         {
+            debug_assert_eq!(knight_pos, current_size.pos_at_spiral_index(spiral_index));
             // valid combos with this position are every previous position
             let mut valid_combos = knight_pos_index;
-            for &movement in knight_movements {
+            for movement in KNIGHT_MOVEMENTS {
                 // check if the movement would escape the board
                 if let Some(pos) = knight_pos.checked_offset(movement, current_size) {
                     if pos > knight_pos {
@@ -278,7 +308,6 @@ pub fn count_possible_placements(max_size: BoardSize, func: &mut dyn FnMut(Board
 pub fn naive_count_possible_placements(size: BoardSize) -> u64 {
     let spaces = size.available_spaces();
     let mut total = 0u64;
-    let movements = knight_movements();
     // there is symmetry here: Knight A can attack knight B iff B can attack knight B
     // So after placing knight A, then B can be wherever A does not attack
     //
@@ -286,17 +315,43 @@ pub fn naive_count_possible_placements(size: BoardSize) -> u64 {
     // taking advantage of the total order of Position and the fact the iterator
     // respects that ordering
     for (index, knight) in size.all_positions().enumerate() {
-        let mut this_board_combos = spaces - 1 - u32::try_from(index).unwrap();
-        for &movement in movements {
-            if let Some(pos) = knight.checked_offset(movement, size) {
-                if pos > knight {
-                    this_board_combos -= 1;
-                }
-            }
-        }
+        #[allow(clippy::cast_possible_truncation)] // cannot overflow unless `spaces` does
+        let index = index as u32;
+        let mut this_board_combos = spaces - 1 - index;
+        this_board_combos -= naive_count_possible_movements(knight, size, |other_pos| {
+            // The ordering of Position is designed to respect the spiral iteration order.
+            // Since we iterate the spiral in order,
+            // this means we can use a comparison to check for already visited spaces
+            other_pos <= knight
+        });
         total += this_board_combos as u64;
     }
     total
+}
+
+/// Count the possible movements that a knight at position `knight`
+/// can make in a board of size `size`.
+///
+/// This ignores moves that were previously handled according to the specified closure.
+///
+/// This is shared between the naive implementation and fast implementation,
+/// but the faster implementation skips calling this function in many cases.
+/// This is also used by a test to ensure the reasoning used by the fast
+/// function to skip certain cases remains valid.
+fn naive_count_possible_movements(
+    knight: Position,
+    size: BoardSize,
+    was_previously_handled: impl Fn(Position) -> bool,
+) -> u32 {
+    let mut possible_movements = 0;
+    for movement in KNIGHT_MOVEMENTS {
+        if let Some(pos) = knight.checked_offset(movement, size) {
+            if !was_previously_handled(pos) {
+                possible_movements += 1;
+            }
+        }
+    }
+    possible_movements
 }
 
 #[cfg(test)]
@@ -313,6 +368,25 @@ mod test {
                 )),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn outside_corners_constant_valid_movements() {
+        for size in [20, 30, 40, 42, 62].map(BoardSize::new) {
+            let corner_index = size.index;
+            let indexes_away_from_edges = Iterator::chain(
+                0..=(corner_index - AWAY_FROM_CORNERS_DIST),
+                (corner_index + AWAY_FROM_CORNERS_DIST)..=size.max_spiral_index(),
+            );
+            for spiral_index in indexes_away_from_edges {
+                let knight = size.pos_at_spiral_index(spiral_index);
+                assert_eq!(
+                    naive_count_possible_movements(knight, size, |other_pos| other_pos <= knight),
+                    AWAY_FROM_CORNERS_VALID_MOVEMENTS,
+                    "index = {spiral_index}, size = {size:?}"
+                );
+            }
         }
     }
 
