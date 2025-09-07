@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
-use std::ops::{Add, RangeInclusive, Sub};
-use std::sync::OnceLock;
+use std::fmt::{Debug, Display};
+use std::ops::{Add, RangeInclusive, Sub, RangeBounds, Bound, Range};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
@@ -16,7 +16,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 const MAX_INPUT: u32 = 10_000;
 const MAX_BOARD_SPACES: u32 = MAX_INPUT * MAX_INPUT;
 
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct BoardSize {
     index: u32,
 }
@@ -69,6 +69,13 @@ impl BoardSize {
             // row should increase until we hit the maximum
             row: index.min(self.index),
         }
+    }
+}
+impl Debug for BoardSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("BoardSize")
+            .field(&self.value())
+            .finish()
     }
 }
 impl Add<u32> for BoardSize {
@@ -162,20 +169,24 @@ impl PartialOrd for Position {
         Some(self.cmp(other))
     }
 }
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Position {
     row: u32,
     column: u32,
 }
 impl Position {
     #[inline]
-    fn remaining_positions(self, max_size: BoardSize) -> impl Iterator<Item = Position> + 'static {
+    fn remaining_positions_fixed_size(self) -> FixedSizeSpiral {
         let current_size = self.needed_size();
+        FixedSizeSpiral {
+            size: current_size,
+            counter: self.determine_spiral_index()..=current_size.max_spiral_index(),
+        }
+    }
+    #[inline]
+    fn remaining_positions(self, max_size: BoardSize) -> impl Iterator<Item = Position> + 'static {
         BoardSpiral {
-            current_spiral: FixedSizeSpiral {
-                size: current_size,
-                counter: self.determine_spiral_index()..=current_size.max_spiral_index(),
-            },
+            current_spiral: self.remaining_positions_fixed_size(),
             max_size,
         }
     }
@@ -211,6 +222,14 @@ impl Position {
             debug_assert_eq!(size.index, self.row);
             size.index + (size.index - self.column)
         }
+    }
+}
+impl Debug for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Position")
+            .field(&self.row)
+            .field(&self.column)
+            .finish()
     }
 }
 #[derive(Copy, Clone, Debug)]
@@ -261,43 +280,69 @@ pub fn count_possible_placements(max_size: BoardSize, func: &mut dyn FnMut(Board
         // ```
         // let already_handled = set();
         // for knight1_pos in prev_size.fixed_spiral() {
-        //      let = [possible placements of knight 2 without considering attacks];
+        //      let mut possible_combos = [possible placements of knight2 not already handled]
         //      for moved_pos in possible_movements(knight_pos) {
         //          if moved_pos not in already_handled {
-        //              /* a knight can attach from , so it is
+        //              // a knight can attach from knight1_pos to moved_pos.
+        //              // This means moved_pos is not a valid combination
+        //              possible_combos -= 1;
         //          }
         //      }
         //      already_handled.add(knight1_pos)
         // }
         // ```
+        // NOTE: The inner loop is split into the separate `naive_count_possible_movements` function.
         //
         // When the size is large, most of these inner two iterations
         // are spent far from the edges and corner of the board.
         // In this case, the knight has exactly 4 possible movements that do not fall off the edge of the board.
         // This eliminates the need to check for overflowing positions (done by possible_movements function in pseudocode).
-        // Exactly two of those movements were to places already handled by previous iterations, eliminating the need to check the hashset.
-        // Note that  even the "naive" implementation takes advantage of total ordering of a Position wrt the spiral to avoid the hashset.
-        //
+        // When away from the corners, none of these possible movements are onto the outer edge of the spiral,
+        // because a knight can't attack the same row/column it is on.
+        // This means possible movements is zero unless we are near the corner.
+        // This means that in most cases, the number of possible movements is zero
+        // and so the subtraction `possible_combos -= 1` is executed zero times.
         // This reasoning is verified by a test, which ensures that away from the edges of the board,
-        // there are exactly two valid positions to move to that have not already been moved to
-        for ((knight_pos, knight_pos_index), spiral_index) in current_size
-            .fixed_spiral()
-            .zip(prev_size.available_spaces()..)
-            .zip(0u32..)
-        {
-            debug_assert_eq!(knight_pos, current_size.pos_at_spiral_index(spiral_index));
-            // valid combos with this position are every previous position
+        // there are zero valid movements not already handled.
+        //
+        // Unfortunately, this is a little more complicated then just turing constant addition into multiplication,
+        // because the value of `possible_combos` changes each iteration.
+        // Both the naive and optimized implementation take advantage of the fact that we iterate
+        // over the spiral in order and that the ordering of a Position respects the order of the spiral.
+        // This means we can use a Position comparison to implement `moved_pos not in already_handled`.
+        // Even more importantly, it means we can compute the number of `possible_combos` from the index
+        // More precisely, the possible combos are exactly the position of
+        // This also takes care of some double counting issues.
+        // (Note that double counting is why we have the already_handled check in the first place).
+        //
+        // Anyway, since the index increases by one each time, this is an arithmetic sequence.
+        // Luckily, any arithmetic sequence has a simple closed form expression
+        // which is handled by the `sum_range` function.
+        //
+        // Also, we only perform this optimization for large size boards >= 20
+        let prev_size_spaces = prev_size.available_spaces();
+        eprintln!("prev spaces {prev_size_spaces} for {current_size:?}");
+
+        for spiral_index in 0..=current_size.max_spiral_index() {
+            let knight_pos = current_size.pos_at_spiral_index(spiral_index);
+            let knight_pos_index = prev_size_spaces + spiral_index;
+            // valid combos with this position are every previous position,
+            // except those the knight can attack
             let mut valid_combos = knight_pos_index;
-            for movement in KNIGHT_MOVEMENTS {
-                // check if the movement would escape the board
-                if let Some(pos) = knight_pos.checked_offset(movement, current_size) {
-                    if pos > knight_pos {
-                        /* will deal with this later */
-                    } else {
-                        valid_combos -= 1;
-                    }
+            let valid_movements = naive_count_possible_movements(
+                knight_pos,
+                current_size,
+                |other_pos| {
+                    // we will handle these positions later
+                    // Note that this logic differs from the naive comparison
+                    other_pos > knight_pos
                 }
+            );
+            if current_size.index >= 20 && spiral_index >= 5 && (spiral_index.abs_diff(current_size.index)) > 5 && spiral_index <= (current_size.max_spiral_index() - 5) {
+                assert_eq!(valid_movements, 4, "{spiral_index} for {current_size:?}");
             }
+            valid_combos -= valid_movements;
+            eprintln!("opt: valid combos for {knight_pos:?} are {valid_combos}");
             total_possibilities += valid_combos as u64;
         }
         func(current_size, total_possibilities);
@@ -324,6 +369,7 @@ pub fn naive_count_possible_placements(size: BoardSize) -> u64 {
             // this means we can use a comparison to check for already visited spaces
             other_pos <= knight
         });
+        eprintln!("naive: valid combos for {knight:?} are {this_board_combos} for {size:?}");
         total += this_board_combos as u64;
     }
     total
@@ -332,7 +378,7 @@ pub fn naive_count_possible_placements(size: BoardSize) -> u64 {
 /// Count the possible movements that a knight at position `knight`
 /// can make in a board of size `size`.
 ///
-/// This ignores moves that were previously handled according to the specified closure.
+/// This ignores moves that should be ignored according to the specified closure.
 ///
 /// This is shared between the naive implementation and fast implementation,
 /// but the faster implementation skips calling this function in many cases.
@@ -341,12 +387,12 @@ pub fn naive_count_possible_placements(size: BoardSize) -> u64 {
 fn naive_count_possible_movements(
     knight: Position,
     size: BoardSize,
-    was_previously_handled: impl Fn(Position) -> bool,
+    should_ignore: impl Fn(Position) -> bool,
 ) -> u32 {
     let mut possible_movements = 0;
     for movement in KNIGHT_MOVEMENTS {
         if let Some(pos) = knight.checked_offset(movement, size) {
-            if !was_previously_handled(pos) {
+            if !should_ignore(pos) {
                 possible_movements += 1;
             }
         }
@@ -354,9 +400,69 @@ fn naive_count_possible_movements(
     possible_movements
 }
 
+/// Map the values in the range, as if calling the `range.map()` iterator function.
+///
+/// However, this returns a range, simply mapping the start and end indexes.
+/// This means the transformation has to be implemented sanely for this to work.
+pub fn map_range<U: Copy, T>(
+    range: RangeInclusive<U>,
+    mut func: impl FnMut(U) -> T,
+) -> RangeInclusive<T> {
+    func(*range.start())..=func(*range.end())
+}
+/// Sum all the values in the specified range.
+///
+/// Equivalent to `range.sum()` but takes O(1) time.
+pub fn sum_range<R: RangeBounds<u32>>(range: R) -> u64 {
+    let Bound::Included(&start) = range.start_bound() else {
+        unimplemented!("start bound must be inclusive: {:?}", range.start_bound());
+    };
+    let len = match range.end_bound() {
+        Bound::Included(&end) => {
+            assert!(end >= start);
+            (end - start) + 1
+
+        }
+        Bound::Excluded(&end) => {
+            assert!(end >= start);
+            end - start
+        }
+        Bound::Unbounded => panic!("end bound can't be unbounded"),
+    } as u64;
+    if len == 0 {
+        0
+    } else {
+        (len * start as u64) + ((len * (len - 1)) / 2)
+    }
+}
+
+/// Split the range `[a, b]` into `[a, mid)` and `[mid, b]`
+pub fn split_range<T: PrimInt>(range: RangeInclusive<T>, mid: T) -> (Range<T>, RangeInclusive<T>) {
+    assert!(
+        *range.start() <= mid && mid <= *range.end(),
+        "invalid args: ({range:?}, {mid})"
+    );
+    (*range.start()..mid, mid..=*range.end())
+
+}
+pub trait PrimInt: Ord + Display + Debug + Copy {}
+impl PrimInt for u32 {}
+
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    fn optimized_possible_placements(max_size: BoardSize) -> Vec<u64> {
+        // putting this in a single function avoids code duplication
+        // and more importantly reduces monomorphization
+        let mut res = Vec::new();
+        count_possible_placements(max_size, &mut |size, count| {
+            assert_eq!(size.index as usize, res.len());
+            res.push(count);
+        });
+        res
+    }
 
     const EXAMPLE_EXPECTED: &[u64] = &[0, 6, 28, 96, 252, 550, 1056, 1848];
     #[test]
@@ -392,12 +498,28 @@ mod test {
 
     #[test]
     fn example() {
-        let mut res = Vec::new();
-        count_possible_placements(BoardSize::new(8), &mut |size, count| {
-            assert_eq!(size.index as usize, res.len());
-            res.push(count);
-        });
-        assert_eq!(res, EXAMPLE_EXPECTED);
+        assert_eq!(
+            optimized_possible_placements(BoardSize::new(8)),
+            EXAMPLE_EXPECTED
+        );
+    }
+
+    #[test]
+    fn large_spiral_matches_naive() {
+        const START: BoardSize = BoardSize::new(20);
+        const END: BoardSize = BoardSize::new(30);
+        let naive_results = (START.index..=END.index)
+            .map(BoardSize::from_index)
+            .map(naive_count_possible_placements)
+            .collect::<Vec<_>>();
+        let optimized_results = optimized_possible_placements(END)
+            .into_iter()
+            .enumerate()
+            .filter(|(idx, _)| *idx >= START.index as usize)
+            .map(|(_, count)| count)
+            .collect::<Vec<_>>();
+        assert_eq!(naive_results.len(), optimized_results.len());
+        assert_eq!(naive_results, optimized_results);
     }
 
     #[test]
@@ -499,5 +621,14 @@ mod test {
             assert_eq!(x.needed_size().pos_at_spiral_index(spiral_index), x);
             last = Some(x);
         }
+    }
+
+    #[test]
+    fn verify_sum_range() {
+        assert_eq!(sum_range(5..5), 0);
+        assert_eq!(sum_range(0..=10), (0..=10).sum());
+        assert_eq!(sum_range(5..=20), (5..=20).sum());
+        assert_eq!(sum_range(5..20), (5..20).sum());
+        assert_eq!(sum_range(482..=1000), (482..=1000).sum());
     }
 }
