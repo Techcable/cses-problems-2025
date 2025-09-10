@@ -47,6 +47,16 @@ fn-to-numeric-cast-with-truncation = "deny"
 cast-lossless = "allow" # lossless casts are fine, lints will catch if types change
 ptr_as_ptr = "allow" # pointer casts are fine as long as they don't violate another rule
 
+#
+# clippy::restrictions group
+#
+get-unwrap = "warn" # Vec.get().unwrap() is silly
+redundant-test-prefix = "warn" # name test_foo is redundant with #[test] attr
+same-name-method = "warn" # this is usually a mistake
+unused_result_ok = "warn" # pointless
+tests_outside_test_module = "warn"
+unnecessary-self-imports = "warn"
+infinite_loop = "deny" # I dislike the loop{} pattern
 
 #
 # excessively pedantic (even for clippy::pedantic)

@@ -2,6 +2,7 @@
 //!
 //! Since inputs can be up to 1 million,
 //! it is not computationally feasible to check all `10^6!` possibilities
+#![allow(clippy::format_push_string)]
 
 use std::collections::VecDeque;
 

@@ -478,6 +478,7 @@ impl_prim_int!(u32, u64);
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::redundant_test_prefix)]
     use super::*;
 
     fn optimized_possible_placements(max_size: BoardSize) -> Vec<u64> {

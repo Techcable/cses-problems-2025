@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_doc_comments)]
 use std::ops::Sub;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
