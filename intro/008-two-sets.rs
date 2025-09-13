@@ -1,14 +1,13 @@
 use crate::set::NumberSet;
 use std::cmp::Ordering;
-use std::ops::ControlFlow;
+use std::ops::{Bound, ControlFlow, RangeBounds, RangeInclusive};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
     let input = input.trim().parse::<u32>()?;
-    let mut left = (1..=input).collect::<NumberSet>();
-    let orig_sum = left.sum();
-    let mut right = NumberSet::new();
-    fn print_set(x: &NumberSet) {
+    let range = 1..=input;
+    fn print_set<I: IntoIterator<Item = u32>>(x: I) {
+        let x = x.into_iter().collect::<Vec<_>>();
         assert!(!x.is_empty());
         println!("{}", x.len());
         for (index, val) in x.iter().enumerate() {
@@ -19,20 +18,36 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         println!();
     }
-    let res = naive_search(&mut left, &mut right, &mut move |left, right| {
-        assert_eq!(left.sum() + right.sum(), orig_sum);
-        println!("YES");
-        print_set(left);
-        print_set(right);
-        ControlFlow::Break(())
-    });
-    if res.is_continue() {
-        println!("NO");
+    match intelligent_split(range) {
+        None => {
+            println!("NO");
+        }
+        Some((left, right)) => {
+            println!("YES");
+            print_set(left);
+            print_set(right);
+        }
     }
     Ok(())
 }
 
-type SuccessCallback = dyn FnMut(&NumberSet, &NumberSet) -> ControlFlow<()>;
+type SuccessCallback<'a> = dyn FnMut(&NumberSet, &NumberSet) -> ControlFlow<()> + 'a;
+
+pub fn naive_split(left: RangeInclusive<u32>) -> Option<(NumberSet, NumberSet)> {
+    let mut left = left.collect::<NumberSet>();
+    let mut right = NumberSet::new();
+    let orig_sum = left.sum();
+    let mut split = None;
+    let control = naive_search(&mut left, &mut right, &mut |left, right| {
+        assert_eq!(left.sum() + right.sum(), orig_sum);
+        split = Some((left.clone(), right.clone()));
+        ControlFlow::Break(())
+    });
+    match control {
+        ControlFlow::Continue(()) => None,
+        ControlFlow::Break(()) => Some(split.unwrap()),
+    }
+}
 
 /// Searches all possible combinations using backtracking,
 /// shrinking the `left` set and growing the right `set`.
@@ -66,6 +81,88 @@ pub fn naive_search(
         left.insert(value);
     }
     ControlFlow::Continue(())
+}
+
+pub fn intelligent_split(left: RangeInclusive<u32>) -> Option<(NumberSet, NumberSet)> {
+    assert!(!left.is_empty(), "{left:?}");
+    assert_eq!(*left.start(), 1, "{left:?}");
+    let mut left = left.collect::<NumberSet>();
+    if left.sum() % 2 != 0 {
+        return None;
+    }
+    let half = left.sum() / 2;
+    let mut right = NumberSet::new();
+    loop {
+        match left.sum().cmp(&half) {
+            Ordering::Greater => {
+                let shrink_by = left.sum() - half;
+                assert!(shrink_by > 0);
+                match left.first_below(u32::try_from(shrink_by).ok().unwrap_or(u32::MAX)) {
+                    None => {
+                        println!("nothing below {shrink_by} for {left:?}, {right:?}");
+                        return None;
+                    }
+                    Some(value) => {
+                        assert!(value as u64 <= shrink_by);
+                        left.remove(value);
+                        right.insert(value);
+                    }
+                }
+            }
+            Ordering::Equal => return Some((left, right)),
+            Ordering::Less => return None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RangeSet {
+    range: RangeInclusive<u32>,
+    sum: u64,
+}
+impl RangeSet {
+    pub fn new(range: RangeInclusive<u32>) -> Self {
+        let sum = sum_range(range.clone());
+        RangeSet { range, sum }
+    }
+    pub fn one_below(&self) -> Option<u32> {
+        (*self.range.start()).checked_sub(1).filter(|&x| x != 0)
+    }
+    pub fn insert(&mut self, value: u32) {
+        if Some(value) == self.one_below() {
+            self.range = value..=*self.range.end();
+            self.sum += value as u64;
+        } else {
+            panic!("cannot add {value} to {self:?}")
+        }
+    }
+}
+
+/// Sum all the values in the specified range.
+///
+/// Equivalent to `range.sum()` but takes O(1) time.
+#[inline]
+pub fn sum_range<R: RangeBounds<u32>>(range: R) -> u64 {
+    let Bound::Included(&start) = range.start_bound() else {
+        unimplemented!("start bound must be inclusive: {:?}", range.start_bound());
+    };
+    let len = match range.end_bound() {
+        Bound::Included(&end) => {
+            assert!(end >= start);
+            (end - start) + 1
+        }
+        Bound::Excluded(&end) => {
+            assert!(end >= start);
+            end - start
+        }
+        Bound::Unbounded => panic!("end bound can't be unbounded"),
+    } as u64;
+    // special-case is needed to avoid integer underflow
+    if len == 0 {
+        0
+    } else {
+        (len * start as u64) + ((len * (len - 1)) / 2)
+    }
 }
 
 pub const MAX_INPUT: u32 = 10u32.pow(6);
@@ -112,6 +209,13 @@ mod set {
 
         pub fn largest(&self) -> Option<u32> {
             self.values.last().copied()
+        }
+
+        pub fn first_below(&self, x: u32) -> Option<u32> {
+            self.values
+                .range((Bound::Unbounded, Bound::Excluded(&x)))
+                .next_back()
+                .copied()
         }
 
         pub fn to_range(&self) -> Result<RangeInclusive<u32>, RangeConvertError> {
@@ -186,6 +290,13 @@ mod set {
                 self.sum += value as u64;
             }
             success
+        }
+    }
+    impl IntoIterator for NumberSet {
+        type Item = u32;
+        type IntoIter = btree_set::IntoIter<u32>;
+        fn into_iter(self) -> Self::IntoIter {
+            self.values.into_iter()
         }
     }
     #[derive(Debug, Clone)]
