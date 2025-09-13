@@ -41,6 +41,10 @@ pub fn naive_search(
     right: &mut NumberSet,
     func: &mut SuccessCallback,
 ) -> ControlFlow<()> {
+    if right.is_empty() && left.sum() % 2 != 0 {
+        // cannot find answer if sum is odd
+        return ControlFlow::Continue(());
+    }
     let mut iter = left.detached_iter();
     while let Some(value) = iter.next(left) {
         left.remove(value);
