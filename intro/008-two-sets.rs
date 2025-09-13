@@ -75,7 +75,7 @@ mod set {
     //!
     //! This is in its own module for better encapsulation.
     use std::collections::{btree_set, BTreeSet};
-    use std::ops::Bound;
+    use std::ops::{Bound, RangeInclusive};
 
     #[derive(Clone, Debug)]
     pub struct NumberSet {
@@ -104,6 +104,30 @@ mod set {
         #[inline]
         pub fn sum(&self) -> u64 {
             self.sum
+        }
+
+        pub fn smallest(&self) -> Option<u32> {
+            self.values.first().copied()
+        }
+
+        pub fn largest(&self) -> Option<u32> {
+            self.values.last().copied()
+        }
+
+        pub fn to_range(&self) -> Result<RangeInclusive<u32>, RangeConvertError> {
+            if self.is_empty() {
+                Err(RangeConvertError::Empty)
+            } else {
+                let smallest = self.smallest().unwrap();
+                let largest = self.largest().unwrap();
+                assert!(smallest <= largest);
+                let value_range = largest - smallest;
+                if value_range as usize == self.len() {
+                    Ok(smallest..=largest)
+                } else {
+                    Err(RangeConvertError::NotContiguous)
+                }
+            }
         }
 
         /// Iterate over the elements of this set,
@@ -163,6 +187,11 @@ mod set {
             }
             success
         }
+    }
+    #[derive(Debug, Clone)]
+    pub enum RangeConvertError {
+        NotContiguous,
+        Empty,
     }
     pub type Iter<'a> = std::iter::Copied<btree_set::Iter<'a, u32>>;
     /// A detached iterator over a [`NumberSet`] that doesn't borrow its input.
