@@ -97,9 +97,9 @@ pub fn intelligent_split(left: RangeInclusive<u32>) -> Option<(NumberSet, Number
             Ordering::Greater => {
                 let shrink_by = left.sum() - half;
                 assert!(shrink_by > 0);
-                match left.first_below(u32::try_from(shrink_by).ok().unwrap_or(u32::MAX)) {
+                let shrink_by_u32 = u32::try_from(shrink_by).ok().unwrap_or(u32::MAX);
+                match left.first_below(Bound::Included(shrink_by_u32)) {
                     None => {
-                        println!("nothing below {shrink_by} for {left:?}, {right:?}");
                         return None;
                     }
                     Some(value) => {
@@ -211,9 +211,9 @@ mod set {
             self.values.last().copied()
         }
 
-        pub fn first_below(&self, x: u32) -> Option<u32> {
+        pub fn first_below(&self, x: Bound<u32>) -> Option<u32> {
             self.values
-                .range((Bound::Unbounded, Bound::Excluded(&x)))
+                .range((Bound::Unbounded, x.as_ref()))
                 .next_back()
                 .copied()
         }
@@ -348,5 +348,158 @@ mod set {
             }
             NumberSet { sum, values: set }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestCase {
+        n: u32,
+        expect_success: bool,
+    }
+    impl TestCase {
+        #[inline]
+        fn range(&self) -> RangeInclusive<u32> {
+            1..=self.n
+        }
+        #[track_caller]
+        fn verify_res(&self, res: Option<(NumberSet, NumberSet)>) {
+            match self.try_verify_res(res) {
+                Ok(()) => {}
+                Err(error) => panic!("{error}"),
+            }
+        }
+        #[allow(clippy::format_push_string, clippy::needless_pass_by_value)]
+        fn try_verify_res(&self, res: Option<(NumberSet, NumberSet)>) -> Result<(), String> {
+            let range = self.range();
+            let expected_total_sum = sum_range(range.clone());
+            let mut errors = Vec::new();
+            // if we have a result, check the validity first
+            if let Some((ref left, ref right)) = res {
+                if left.sum() + right.sum() != expected_total_sum {
+                    errors.push(format!(
+                        "Expected sum(left) + sum(right) == sum({range:?}), but {sl} + {sr} != {st}",
+                        sl = left.sum(),
+                        sr = right.sum(),
+                        st = expected_total_sum,
+                    ));
+                }
+                if left.sum() != right.sum() {
+                    errors.push(format!(
+                        "Mismatched halves: sum(left) = {sl} != {sr} = sum(right)",
+                        sl = left.sum(),
+                        sr = right.sum(),
+                    ));
+                }
+            }
+            if self.expect_success {
+                if !expected_total_sum.is_multiple_of(2) {
+                    errors.push(format!(
+                        "Expected to successfully split {range:?}, but the sum {expected_total_sum} is odd"
+                    ));
+                }
+                if res.is_none() {
+                    errors.push(format!(
+                        "Expected to successfully split {range:?}, but got nothing"
+                    ));
+                }
+            } else {
+                if res.is_some() {
+                    errors.push(format!(
+                        "Expected failure to split {range:?}, but got a result anyways"
+                    ));
+                }
+            }
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                let range = self.range();
+                let mut combined_message = format!(
+                    "Failed test case for {range:?} with sum {st}:",
+                    st = sum_range(self.range()),
+                );
+                for err in &errors {
+                    combined_message.push_str("\n- ");
+                    combined_message.push_str(err);
+                }
+                if let Some((ref left, ref right)) = res {
+                    combined_message.push_str(&format!("\nLeft: {left:?}"));
+                    combined_message.push_str(&format!("\nRight: {right:?}"));
+                } else {
+                    combined_message.push_str("\nResult: <missing>");
+                }
+                Err(combined_message)
+            }
+        }
+    }
+    const BASIC_TEST_CASES: &[TestCase] = &[
+        TestCase {
+            n: 7,
+            expect_success: true,
+        },
+        TestCase {
+            n: 6,
+            expect_success: false,
+        },
+        TestCase {
+            n: 1,
+            expect_success: false,
+        },
+    ];
+
+    #[test]
+    fn naive_basic() {
+        for case in BASIC_TEST_CASES {
+            case.verify_res(naive_split(case.range()));
+        }
+    }
+
+    #[test]
+    fn intelligent_basic() {
+        for case in BASIC_TEST_CASES {
+            case.verify_res(intelligent_split(case.range()));
+        }
+    }
+
+    const SLOW: &[TestCase] = &[
+        // official test case 11
+        TestCase {
+            n: 26560,
+            expect_success: true,
+        },
+        // official test 12
+        TestCase {
+            n: 155974,
+            expect_success: false,
+        },
+        // official test 14
+        TestCase {
+            n: 260443,
+            expect_success: true,
+        },
+        // official test 15
+        TestCase {
+            n: 275717,
+            expect_success: false,
+        },
+        // official test 18
+        TestCase {
+            n: 653620,
+            expect_success: true,
+        },
+    ];
+
+    #[test]
+    fn slow_intelligent() {
+        for case in SLOW {
+            intelligent_split(case.range());
+        }
+    }
+
+    #[test]
+    fn timeout_intelligent_max_input() {
+        intelligent_split(1..=super::MAX_INPUT);
     }
 }

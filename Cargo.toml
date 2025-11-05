@@ -58,6 +58,9 @@ tests_outside_test_module = "warn"
 unnecessary-self-imports = "warn"
 infinite_loop = "deny" # I dislike the loop{} pattern
 
+# specifically basd cfor CSES problems
+unreadable_literal = "allow"
+
 #
 # excessively pedantic (even for clippy::pedantic)
 #
@@ -66,3 +69,4 @@ missing-panics-doc = "allow"
 must_use_candidate = "allow"
 return_self_not_must_use = "allow"
 items-after-statements = "allow"
+collapsible-else-if = "allow"
