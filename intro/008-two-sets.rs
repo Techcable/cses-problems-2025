@@ -1,6 +1,6 @@
 use crate::set::NumberSet;
 use std::cmp::Ordering;
-use std::ops::{Bound, ControlFlow, RangeBounds, RangeInclusive};
+use std::ops::{Bound, ControlFlow, Range, RangeBounds, RangeInclusive};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
@@ -83,19 +83,59 @@ pub fn naive_search(
     ControlFlow::Continue(())
 }
 
-pub fn intelligent_split(left: RangeInclusive<u32>) -> Option<(NumberSet, NumberSet)> {
-    assert!(!left.is_empty(), "{left:?}");
-    assert_eq!(*left.start(), 1, "{left:?}");
-    let mut left = left.collect::<NumberSet>();
-    if left.sum() % 2 != 0 {
+pub fn intelligent_split(original: RangeInclusive<u32>) -> Option<(NumberSet, NumberSet)> {
+    assert!(!original.is_empty(), "{original:?}");
+    assert_eq!(*original.start(), 1, "{original:?}");
+    let total_sum = sum_range(original.clone());
+    if total_sum % 2 != 0 {
         return None;
     }
-    let half = left.sum() / 2;
-    let mut right = NumberSet::new();
+    let half_sum = total_sum / 2;
+
+    // the idea is to gradually grow the `right`
+    // set by taking the largest possible number from the `right`.
+    //
+    // As an optimization,see how many contiguous numbers we can chunk off the end of left
+    // while still remaining under the `half_sum`
+    let (mut left, mut right) = {
+        assert!(
+            *original.end() as u64 <= half_sum,
+            "end of range {original:?} exceeds half sum {half_sum}"
+        );
+        // the lowest element in the range of contiguous elements being split off,
+        // we don't need an option since we can always split off the last element
+        let mut lowest_contig_element: u32 = *original.end();
+        let mut contiguous_elements_sum: u64 = lowest_contig_element as u64;
+        for new_last in original.clone().rev().skip(1) {
+            debug_assert_eq!(new_last, lowest_contig_element - 1);
+            let new_sum = contiguous_elements_sum + new_last as u64;
+            if new_sum <= half_sum {
+                // we can add to the range of contiguous elements
+                lowest_contig_element = new_last;
+                contiguous_elements_sum = new_sum;
+            } else {
+                break;
+            }
+        }
+        assert!(contiguous_elements_sum <= half_sum);
+        let (remaining_range, contiguous_elements) = split_range(original, lowest_contig_element);
+        assert_eq!(
+            sum_range(contiguous_elements.clone()),
+            contiguous_elements_sum
+        );
+        assert_eq!(
+            sum_range(remaining_range.clone()),
+            total_sum - contiguous_elements_sum
+        );
+        (
+            NumberSet::from(remaining_range),
+            NumberSet::from(contiguous_elements),
+        )
+    };
     loop {
-        match left.sum().cmp(&half) {
+        match left.sum().cmp(&half_sum) {
             Ordering::Greater => {
-                let shrink_by = left.sum() - half;
+                let shrink_by = left.sum() - half_sum;
                 assert!(shrink_by > 0);
                 let shrink_by_u32 = u32::try_from(shrink_by).ok().unwrap_or(u32::MAX);
                 match left.first_below(Bound::Included(shrink_by_u32)) {
@@ -115,27 +155,22 @@ pub fn intelligent_split(left: RangeInclusive<u32>) -> Option<(NumberSet, Number
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct RangeSet {
-    range: RangeInclusive<u32>,
-    sum: u64,
+/// Split the range `[a, b]` into `[a, mid)` and `[mid, b]`
+#[inline]
+pub fn split_range<T: sealed::PrimInt>(
+    range: RangeInclusive<T>,
+    mid: T,
+) -> (Range<T>, RangeInclusive<T>) {
+    assert!(
+        *range.start() <= mid && mid <= *range.end(),
+        "invalid args: ({range:?}, {mid})"
+    );
+    (*range.start()..mid, mid..=*range.end())
 }
-impl RangeSet {
-    pub fn new(range: RangeInclusive<u32>) -> Self {
-        let sum = sum_range(range.clone());
-        RangeSet { range, sum }
-    }
-    pub fn one_below(&self) -> Option<u32> {
-        (*self.range.start()).checked_sub(1).filter(|&x| x != 0)
-    }
-    pub fn insert(&mut self, value: u32) {
-        if Some(value) == self.one_below() {
-            self.range = value..=*self.range.end();
-            self.sum += value as u64;
-        } else {
-            panic!("cannot add {value} to {self:?}")
-        }
-    }
+mod sealed {
+    use std::fmt::{Debug, Display};
+    pub trait PrimInt: Copy + Display + Debug + Ord {}
+    impl PrimInt for u32 {}
 }
 
 /// Sum all the values in the specified range.
@@ -171,8 +206,9 @@ mod set {
     //! Defines the [`NumberSet`] type.
     //!
     //! This is in its own module for better encapsulation.
+    use super::sum_range;
     use std::collections::{btree_set, BTreeSet};
-    use std::ops::{Bound, RangeInclusive};
+    use std::ops::{Bound, Range, RangeInclusive};
 
     #[derive(Clone, Debug)]
     pub struct NumberSet {
@@ -290,6 +326,22 @@ mod set {
                 self.sum += value as u64;
             }
             success
+        }
+    }
+    impl From<Range<u32>> for NumberSet {
+        fn from(range: Range<u32>) -> NumberSet {
+            NumberSet {
+                sum: sum_range(range.clone()),
+                values: range.collect(),
+            }
+        }
+    }
+    impl From<RangeInclusive<u32>> for NumberSet {
+        fn from(range: RangeInclusive<u32>) -> NumberSet {
+            NumberSet {
+                sum: sum_range(range.clone()),
+                values: range.collect(),
+            }
         }
     }
     impl IntoIterator for NumberSet {
