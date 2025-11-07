@@ -19,7 +19,6 @@ fn problem(n: u32) -> u64 {
     let factors_of_10 = count_factors_with_multiplicity(..=n, 10);
     let factors_of_5 = count_factors_with_multiplicity(..=n, 5) - factors_of_10;
     let factors_of_2 = count_factors_with_multiplicity(..=n, 2) - factors_of_10;
-    println!("{n} => fac 10 {factors_of_10}, fac 5 {factors_of_5}, fac 2 {factors_of_2}");
     factors_of_10 + factors_of_5.min(factors_of_2)
 }
 
