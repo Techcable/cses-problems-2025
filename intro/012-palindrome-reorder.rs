@@ -38,9 +38,12 @@ pub fn problem(text: &str) -> Option<String> {
         None
     } else {
         let odd = odd.iter().copied().next();
-        let even = counts.iter().filter(|&(&c, _)| Some(c) != odd);
-        let even_with_multiplicity = even.flat_map(|(&c, &occurrences)| {
-            assert_eq!(occurrences % 2, 0);
+        let even_with_multiplicity = counts.iter().flat_map(|(&c, &occurrences)| {
+            assert_eq!(
+                occurrences % 2,
+                usize::from(Some(c) == odd),
+                "unexpected parity for {c:?} (occurrences = {occurrences}, odd => {odd:?})"
+            );
             std::iter::repeat(c).take(occurrences / 2)
         });
         let even_half = even_with_multiplicity.collect::<String>();
@@ -75,9 +78,15 @@ mod test {
         assert!(!is_palindrome("AAAACACBA".chars()));
     }
 
+    #[track_caller]
     fn check(t: &str) -> Option<String> {
         let res = problem(t);
         if let Some(ref res) = res {
+            assert_eq!(
+                res.len(),
+                t.len(),
+                "expected problem({t:?}) to preserve length"
+            );
             assert!(
                 is_palindrome(res.chars()),
                 "expected a palindrome from problem({t:?}), but got {res:?}"
@@ -141,5 +150,10 @@ mod test {
     #[test]
     fn test3() {
         assert_eq!(require_success("CBPPBFCFAA"), "ABCFPPFCBA");
+    }
+
+    #[test]
+    fn test15() {
+        assert_eq!(require_success("AADDDCC"), "ACDDDCA");
     }
 }
