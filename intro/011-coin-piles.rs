@@ -1,7 +1,3 @@
-use std::cell::RefCell;
-use std::cmp::Ordering;
-use std::collections::{HashMap, VecDeque};
-use std::hash::Hash;
 use std::str::FromStr;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,69 +22,22 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub const MAX_INPUT: u32 = 10u32.pow(9);
-const SMALL_INPUT_BOUND: u32 = 16;
 pub fn problem(a: u32, b: u32) -> bool {
-    // Impossible to succeed when one input is more than double another
-    // that is because the most aggressively we can take from `a` is -2, -1 each time.
-    // On the other hand, we are guaranteed to succeed when one input is exactly another
-    //
-    // After this reduction, max(a, b) < 2 * min(a, b) < 2 * SMALL_INPUT_BOUND
-    let min_input = a.min(b);
-    let max_input = a.max(b);
-    match max_input.cmp(&(min_input * 2)) {
-        Ordering::Greater => return false,
-        Ordering::Equal => return true,
-        Ordering::Less => {} // continue
+    if a > b {
+        return problem(b, a);
     }
-    memoized_problem(a, b)
-}
-/// A LRU-like cache, evicting least recently accessed entries.
-struct LruCache<K: Eq + Hash + Clone, V> {
-    map: HashMap<K, V>,
-    inserted_entries: VecDeque<K>,
-    capacity: usize,
-}
-impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
-    pub fn with_capacity(capacity: usize) -> LruCache<K, V> {
-        LruCache {
-            map: HashMap::new(),
-            inserted_entries: VecDeque::new(),
-            capacity,
-        }
+    assert!(a <= b);
+    // if they are equal, we can only handle multiples of two
+    if a == b {
+        return a % 3 == 0;
     }
-    pub fn get(&self, key: &K) -> Option<&V> {
-        self.map.get(key)
+    if a == 0 {
+        return false;
     }
-    pub fn insert(&mut self, key: K, value: V) {
-        assert_eq!(self.map.len(), self.inserted_entries.len());
-        let old_entry = self.map.insert(key.clone(), value);
-        if old_entry.is_none() {
-            self.inserted_entries.push_back(key);
-        }
-        if self.map.len() > self.capacity {
-            let evict = self.inserted_entries.pop_front().unwrap();
-            let res = self.map.remove(&evict);
-            assert!(res.is_some(), "entry in queue but not in map");
-        }
-    }
-}
-thread_local! {
-    static CACHE: RefCell<LruCache<(u32, u32), bool>> = RefCell::new(LruCache::with_capacity(100_000));
-}
-pub fn memoized_problem(a: u32, b: u32) -> bool {
-    do_search(a, b, |a, b| {
-        CACHE.with(|cache| {
-            let lock = cache.borrow();
-            lock.get(&(a, b)).copied().unwrap_or_else(move || {
-                drop(lock);
-                let res = memoized_problem(a, b);
-                let mut lock = cache.borrow_mut();
-                lock.insert((a, b), res);
-                drop(lock);
-                res
-            })
-        })
-    })
+    let excess = b - a;
+    // the only possible way to get rid of the excess in `b` is to subtract 2 for b,
+    // then one from a
+    a >= excess && problem(a - excess, b - (excess * 2))
 }
 
 pub fn naive_problem(a: u32, b: u32) -> bool {
