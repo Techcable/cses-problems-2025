@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::str::FromStr;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,28 +23,39 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub const MAX_INPUT: u32 = 10u32.pow(9);
-const SMALL_INPUT_BOUND: u32 = 6;
+const SMALL_INPUT_BOUND: u32 = 16;
 pub fn problem(a: u32, b: u32) -> bool {
-    fn small_problem(a: u32, b: u32) -> bool {
-        if a / 2 > b || b / 2 > a {
-            false
-        } else {
-            do_search(a, b, small_problem)
-        }
-    }
     // slash problem size before using dynamic programming
     // this works because we can always reduce both inputs by 3 by doing a - 1 - 2, b - 2 - 1
     //
-    // after this reduction, the runtime is O(MAX_INPUT^2) ~ O(1)
-    if a >= SMALL_INPUT_BOUND && b >= SMALL_INPUT_BOUND {
+    // after this reduction, min(a, b) <= SMALL_INPUT_BOUND
+    let (a, b) = if a > SMALL_INPUT_BOUND && b > SMALL_INPUT_BOUND {
         let to_trim = a.min(b) - SMALL_INPUT_BOUND;
-        let to_trim = to_trim - (to_trim % 3);
-        debug_assert!(to_trim.is_multiple_of(3));
-        small_problem(a - to_trim, b - to_trim)
+        // Must be careful to round up to the nearest multiple of 3 rather than down,
+        // otherwise it is possible one input will not get quite below the bound
+        let to_trim = to_trim + (3 - (to_trim % 3));
+        debug_assert_eq!(to_trim % 3, 0);
+        (a - to_trim, b - to_trim)
     } else {
-        small_problem(a, b)
+        (a, b)
+    };
+    assert!(a.min(b) <= SMALL_INPUT_BOUND, "({a}, {b})");
+    // Impossible to succeed when one input is more than double another
+    // that is because the most aggressively we can take from `a` is -2, -1 each time.
+    // On the other hand, we are guaranteed to succeed when one input is exactly another
+    //
+    // After this reduction, max(a, b) < 2 * min(a, b) < 2 * SMALL_INPUT_BOUND
+    let min_input = a.min(b);
+    let max_input = a.max(b);
+    match max_input.cmp(&(min_input * 2)) {
+        Ordering::Greater => return false,
+        Ordering::Equal => return true,
+        Ordering::Less => {} // continue
     }
+    assert!(max_input < SMALL_INPUT_BOUND * 2, "({a}, {b})");
+    naive_problem(a, b)
 }
+
 pub fn naive_problem(a: u32, b: u32) -> bool {
     do_search(a, b, naive_problem)
 }
