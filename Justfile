@@ -18,5 +18,5 @@ check-format:
     cargo fmt --check --all
     typos
 
-test: _check && check-format
+test: && _check check-format
     cargo nextest run --all
