@@ -1,4 +1,7 @@
+use std::cell::RefCell;
 use std::cmp::Ordering;
+use std::collections::{HashMap, VecDeque};
+use std::hash::Hash;
 use std::str::FromStr;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,21 +28,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 pub const MAX_INPUT: u32 = 10u32.pow(9);
 const SMALL_INPUT_BOUND: u32 = 16;
 pub fn problem(a: u32, b: u32) -> bool {
-    // slash problem size before using dynamic programming
-    // this works because we can always reduce both inputs by 3 by doing a - 1 - 2, b - 2 - 1
-    //
-    // after this reduction, min(a, b) <= SMALL_INPUT_BOUND
-    let (a, b) = if a > SMALL_INPUT_BOUND && b > SMALL_INPUT_BOUND {
-        let to_trim = a.min(b) - SMALL_INPUT_BOUND;
-        // Must be careful to round up to the nearest multiple of 3 rather than down,
-        // otherwise it is possible one input will not get quite below the bound
-        let to_trim = to_trim + (3 - (to_trim % 3));
-        debug_assert_eq!(to_trim % 3, 0);
-        (a - to_trim, b - to_trim)
-    } else {
-        (a, b)
-    };
-    assert!(a.min(b) <= SMALL_INPUT_BOUND, "({a}, {b})");
     // Impossible to succeed when one input is more than double another
     // that is because the most aggressively we can take from `a` is -2, -1 each time.
     // On the other hand, we are guaranteed to succeed when one input is exactly another
@@ -52,8 +40,55 @@ pub fn problem(a: u32, b: u32) -> bool {
         Ordering::Equal => return true,
         Ordering::Less => {} // continue
     }
-    assert!(max_input < SMALL_INPUT_BOUND * 2, "({a}, {b})");
-    naive_problem(a, b)
+    memoized_problem(a, b)
+}
+/// A LRU-like cache, evicting least recently accessed entries.
+struct LruCache<K: Eq + Hash + Clone, V> {
+    map: HashMap<K, V>,
+    inserted_entries: VecDeque<K>,
+    capacity: usize,
+}
+impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
+    pub fn with_capacity(capacity: usize) -> LruCache<K, V> {
+        LruCache {
+            map: HashMap::new(),
+            inserted_entries: VecDeque::new(),
+            capacity,
+        }
+    }
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.map.get(key)
+    }
+    pub fn insert(&mut self, key: K, value: V) {
+        assert_eq!(self.map.len(), self.inserted_entries.len());
+        let old_entry = self.map.insert(key.clone(), value);
+        if old_entry.is_none() {
+            self.inserted_entries.push_back(key);
+        }
+        if self.map.len() > self.capacity {
+            let evict = self.inserted_entries.pop_front().unwrap();
+            let res = self.map.remove(&evict);
+            assert!(res.is_some(), "entry in queue but not in map");
+        }
+    }
+}
+thread_local! {
+    static CACHE: RefCell<LruCache<(u32, u32), bool>> = RefCell::new(LruCache::with_capacity(100_000));
+}
+pub fn memoized_problem(a: u32, b: u32) -> bool {
+    do_search(a, b, |a, b| {
+        CACHE.with(|cache| {
+            let lock = cache.borrow();
+            lock.get(&(a, b)).copied().unwrap_or_else(move || {
+                drop(lock);
+                let res = memoized_problem(a, b);
+                let mut lock = cache.borrow_mut();
+                lock.insert((a, b), res);
+                drop(lock);
+                res
+            })
+        })
+    })
 }
 
 pub fn naive_problem(a: u32, b: u32) -> bool {
@@ -71,7 +106,6 @@ fn do_search(a: u32, b: u32, subproblem: impl Fn(u32, u32) -> bool) -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::u32::MAX;
 
     #[test]
     fn naive_example() {
@@ -90,5 +124,22 @@ mod test {
     #[test]
     fn timeout_max_input() {
         let _ = problem(MAX_INPUT, MAX_INPUT);
+    }
+
+    #[test]
+    fn test1_small_failures() {
+        #[track_caller]
+        fn require_yes(a: u32, b: u32) {
+            assert!(
+                problem(a, b),
+                "problem({a}, {b}) should be `YES` (naive_problem is {})",
+                if naive_problem(a, b) { "YES" } else { "NO" }
+            );
+        }
+        require_yes(22, 41);
+        require_yes(19, 35);
+        require_yes(19, 38);
+        require_yes(18, 36);
+        require_yes(17, 34);
     }
 }
