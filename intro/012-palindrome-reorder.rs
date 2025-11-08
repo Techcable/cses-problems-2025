@@ -43,10 +43,10 @@ pub fn problem(text: &str) -> Option<String> {
             assert_eq!(occurrences % 2, 0);
             std::iter::repeat(c).take(occurrences / 2)
         });
-        let mut result = String::new();
-        result.extend(even_with_multiplicity.clone());
-        result.extend(odd);
-        result.extend(even_with_multiplicity.rev());
+        let even_half = even_with_multiplicity.collect::<String>();
+        let mut result = even_half.clone();
+        result.extend(odd); // add odd char (if any)
+        result.extend(even_half.chars().rev());
         Some(result)
     }
 }
