@@ -15,8 +15,10 @@ publish = false
 rand = "=0.8.4"
 
 # Useful for testing
+indoc = "2"
 itertools = "0.14"
 proptest = "1"
+criterion = "0.7"
 
 [profile.dev]
 # Increases performance with 007-two-knights(n=5000) from ~10s to ~3s

@@ -11,7 +11,14 @@ publish.workspace = true
 rand.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 itertools.workspace = true
+indoc.workspace = true
+
+[[bench]]
+name = "binomial_coefficients"
+harness = false
+bench = false
 
 [lints]
 workspace = true
