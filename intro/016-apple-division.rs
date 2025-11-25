@@ -1,4 +1,5 @@
 use crate::set::NumberSet;
+use std::collections::Bound;
 use std::ops::ControlFlow;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,8 +22,100 @@ pub const MAX_INPUTS: usize = 20;
 pub const MAX_WEIGHT: u32 = 10u32.pow(9);
 
 pub fn problem(weights: &[u32]) -> Solution {
-    naive_problem(weights)
+    let mut solution = Solution::begin(weights);
+    loop {
+        let prev_delta = solution.delta();
+        match minimize_difference(solution) {
+            Ok(reduced) => {
+                assert!(reduced.delta() < prev_delta);
+                solution = reduced;
+            }
+            Err(MinimizationFailedError(minimal)) => return minimal,
+        }
+    }
 }
+
+/// Minimize the difference between the two values, returning
+fn minimize_difference(mut solution: Solution) -> Result<Solution, MinimizationFailedError> {
+    if solution.delta() == 0 {
+        // already minimal
+        return Err(MinimizationFailedError(solution));
+    }
+    assert!(!solution.left.is_empty() || !solution.right.is_empty());
+    let delta = solution.delta();
+    /// Minimize two optional values, returning `None` only if both inputs are `None`..
+    fn minimize_opt_by<T, K: Ord>(
+        x: Option<T>,
+        y: Option<T>,
+        mut func: impl FnMut(&T) -> K,
+    ) -> Option<T> {
+        match (x, y) {
+            (Some(a), Some(b)) => Some(if func(&a) < func(&b) { a } else { b }),
+            (Some(y), None) | (None, Some(y)) => Some(y),
+            (None, None) => None,
+        }
+    }
+    fn closest_of(set: &NumberSet, x: u64) -> Option<u32> {
+        let Ok(x) = u32::try_from(x) else {
+            return set.largest();
+        };
+        minimize_opt_by(
+            set.first_below(Bound::Excluded(x)),
+            set.first_above(Bound::Excluded(x)),
+            |y| y.abs_diff(x),
+        )
+    }
+    // Find a number in left, right closest to delta/2, then see which one that improves our solution
+    // rounding is not a problem here, because in the worst case true value is x.5 => x,
+    // and we end up picking x over (x + 1)
+    let half_delta = delta / 2;
+    fn delta_after_move(src: &NumberSet, dest: &NumberSet, value: u32) -> u64 {
+        debug_assert!(src.contains(value), "invalid move of {value}");
+        let value = value as u64;
+        (src.sum() - value).abs_diff(dest.sum() + value)
+    }
+    fn delta_move_to_right(set: &Solution, value: u32) -> u64 {
+        delta_after_move(&set.left, &set.right, value)
+    }
+    fn delta_move_to_left(set: &Solution, value: u32) -> u64 {
+        delta_after_move(&set.right, &set.left, value)
+    }
+    // find the closest value we want to move, normalizing the solution so that we move from left to right
+    let (closest, new_delta) = {
+        let closest_left = closest_of(&solution.left, half_delta);
+        let closest_right = closest_of(&solution.right, half_delta);
+        match (closest_left, closest_right) {
+            (Some(closest_left), Some(closest_right)) => {
+                let delta_move_to_right = delta_move_to_right(&solution, closest_left);
+                let delta_move_to_left = delta_move_to_left(&solution, closest_right);
+                if delta_move_to_left < delta_move_to_right {
+                    // swap so that the left has the closest value and we move to the right
+                    solution.swap();
+                    (closest_right, delta_move_to_left)
+                } else {
+                    (closest_left, delta_move_to_right)
+                }
+            }
+            (Some(closest_left), None) => {
+                (closest_left, delta_move_to_right(&solution, closest_left))
+            }
+            (None, Some(closest_right)) => {
+                solution.swap();
+                (closest_right, delta_move_to_right(&solution, closest_right))
+            }
+            (None, None) => unreachable!("both sets are empty for {solution:?}"),
+        }
+    };
+    if new_delta < delta {
+        solution.move_to_right(closest);
+        Ok(solution)
+    } else {
+        Err(MinimizationFailedError(solution))
+    }
+}
+
+/// Indicates the solution cannot be minimized further.
+struct MinimizationFailedError(Solution);
 
 #[derive(Debug, Clone)]
 pub struct Solution {
@@ -36,6 +129,9 @@ impl Solution {
             left: left.into(),
             right: NumberSet::new(),
         }
+    }
+    pub fn swap(&mut self) {
+        std::mem::swap(&mut self.left, &mut self.right);
     }
     #[track_caller]
     pub fn move_to_right(&mut self, value: u32) {
@@ -91,7 +187,7 @@ mod set {
     //!
     //! This is in its own module for better encapsulation.
     use std::collections::{btree_set, BTreeSet};
-    use std::ops::{Bound, RangeInclusive};
+    use std::ops::{Bound, RangeBounds, RangeInclusive};
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct NumberSet {
@@ -130,11 +226,23 @@ mod set {
             self.values.last().copied()
         }
 
+        pub fn range(
+            &self,
+            range: impl RangeBounds<u32>,
+        ) -> impl DoubleEndedIterator<Item = u32> + '_ {
+            self.values.range(range).copied()
+        }
+
         pub fn first_below(&self, x: Bound<u32>) -> Option<u32> {
-            self.values
-                .range((Bound::Unbounded, x.as_ref()))
-                .next_back()
-                .copied()
+            self.range((Bound::Unbounded, x.as_ref())).next_back()
+        }
+
+        pub fn first_above(&self, x: Bound<u32>) -> Option<u32> {
+            self.range((x.as_ref(), Bound::Unbounded)).next()
+        }
+
+        pub fn contains(&self, x: u32) -> bool {
+            self.values.contains(&x)
         }
 
         pub fn to_range(&self) -> Result<RangeInclusive<u32>, RangeConvertError> {
@@ -304,5 +412,10 @@ mod test {
         let inputs = [3, 2, 7, 4, 1];
         verify_naive(inputs, 1);
         verify(inputs, 1);
+    }
+
+    #[test]
+    fn test1() {
+        verify([603, 324, 573, 493, 659, 521, 654, 70, 718, 257], 2);
     }
 }
