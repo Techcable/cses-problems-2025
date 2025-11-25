@@ -13,7 +13,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|entry| entry.parse::<u32>())
         .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(num_inputs, apple_weights.len());
-    println!("{}", problem(&apple_weights).2);
+    println!("{}", problem(&apple_weights).delta());
     Ok(())
 }
 
@@ -24,48 +24,64 @@ pub fn problem(weights: &[u32]) -> Solution {
     naive_problem(weights)
 }
 
-type Solution = (NumberSet, NumberSet, u64);
-
-pub fn naive_problem(weights: &[u32]) -> Solution {
-    let mut min_result: Option<Solution> = None;
-    let mut weights = NumberSet::from(weights);
-    let _ = naive_search(
-        &mut weights,
-        &mut NumberSet::new(),
-        &mut |left, right, value| {
-            eprintln!("considering {left:?}, {right:?}");
-            if min_result.is_none() || value < min_result.as_ref().unwrap().2 {
-                min_result = Some((left.clone(), right.clone(), value));
-            }
-            ControlFlow::Continue(())
-        },
-    );
-    min_result.unwrap()
+#[derive(Debug, Clone)]
+pub struct Solution {
+    left: NumberSet,
+    right: NumberSet,
+}
+impl Solution {
+    /// Begin a solution by placing everything on the left side.
+    pub fn begin(left: impl Into<NumberSet>) -> Solution {
+        Solution {
+            left: left.into(),
+            right: NumberSet::new(),
+        }
+    }
+    #[track_caller]
+    pub fn move_to_right(&mut self, value: u32) {
+        self.left.remove(value);
+        self.right.insert(value);
+    }
+    #[track_caller]
+    pub fn move_to_left(&mut self, value: u32) {
+        self.right.remove(value);
+        self.left.insert(value);
+    }
+    #[inline]
+    pub fn delta(&self) -> u64 {
+        self.left.sum().abs_diff(self.right.sum())
+    }
 }
 
-type SuccessCallback<'a> = dyn FnMut(&NumberSet, &NumberSet, u64) -> ControlFlow<()> + 'a;
+pub fn naive_problem(weights: &[u32]) -> Solution {
+    let mut begin = Solution::begin(weights);
+    let mut min_result = begin.clone();
+    let _ = naive_search(&mut begin, &mut |solution| {
+        if solution.delta() < min_result.delta() {
+            min_result = solution.clone();
+        }
+        ControlFlow::Continue(())
+    });
+    min_result
+}
+
+type SuccessCallback<'a> = dyn FnMut(&Solution) -> ControlFlow<()> + 'a;
 
 /// Searches all possible combinations,
 /// shrinking the `left` set and growing the right `set`.
 ///
 /// Differs from `naive_search` in 008-two-sets because there is no backtracking.
-pub fn naive_search(
-    left: &mut NumberSet,
-    right: &mut NumberSet,
-    func: &mut SuccessCallback,
-) -> ControlFlow<()> {
-    if left.is_empty() {
+pub fn naive_search(solution: &mut Solution, func: &mut SuccessCallback) -> ControlFlow<()> {
+    if solution.left.is_empty() {
         return ControlFlow::Continue(());
-    } else if !right.is_empty() {
-        func(&left, &right, left.sum().abs_diff(right.sum()))?;
+    } else if !solution.right.is_empty() {
+        func(solution)?;
     }
-    let mut iter = left.detached_iter();
-    while let Some(value) = iter.next(left) {
-        left.remove(value);
-        right.insert(value);
-        naive_search(left, right, func)?;
-        right.remove(value);
-        left.insert(value);
+    let mut iter = solution.left.detached_iter();
+    while let Some(value) = iter.next(&solution.left) {
+        solution.move_to_right(value);
+        naive_search(solution, func)?;
+        solution.move_to_left(value);
     }
     ControlFlow::Continue(())
 }
@@ -267,7 +283,8 @@ mod test {
     fn verify_with(inputs: &[u32], expected_result: u64, problem: fn(&[u32]) -> Solution) {
         let actual_result = problem(inputs.as_ref());
         assert_eq!(
-            actual_result.2, expected_result,
+            actual_result.delta(),
+            expected_result,
             "Unexpected result {actual_result:?} for {inputs:?}"
         )
     }
