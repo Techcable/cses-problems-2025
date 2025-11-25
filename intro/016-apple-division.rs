@@ -1,5 +1,4 @@
 use crate::set::NumberSet;
-use std::collections::Bound;
 use std::ops::ControlFlow;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,28 +42,21 @@ fn minimize_difference(mut solution: Solution) -> Result<Solution, MinimizationF
     }
     assert!(!solution.left.is_empty() || !solution.right.is_empty());
     let orig_delta = solution.signed_delta();
-    let new_delta = |pair: Pair| {
-        (solution.left.sum() as i64 - pair.0 as i64 + pair.1 as i64)
-            - (solution.right.sum() as i64 - pair.1 as i64 + pair.0 as i64)
-    };
-    let smallest_pair = meaningful_pairs(&solution)
-        .min_by_key(|&pair| {
-            // println!("considering {pair:?} with {}", new_delta(pair));
-            new_delta(pair).abs()
-        })
+    let minimizing_pair = possible_pairs(&solution)
+        .min_by_key(|&pair| (orig_delta + pair.relative_delta()).abs())
         .unwrap();
-    let new_delta = new_delta(smallest_pair);
-    // println!("found pair {smallest_pair:?} for {orig_delta} -> {new_delta}, {solution:?}");
-    smallest_pair.apply_to(&mut solution);
+    let new_delta = orig_delta + minimizing_pair.relative_delta();
+    // println!("found pair {minimizing_pair:?} for {orig_delta} -> {new_delta}, {solution:?}");
+    minimizing_pair.apply_to(&mut solution);
     assert_eq!(
         solution.signed_delta(),
         new_delta,
-        "bad new solution {solution:?} after {smallest_pair:?}"
+        "incorrectly computed new_delta"
     );
     if new_delta.abs() < orig_delta.abs() {
         Ok(solution)
     } else {
-        smallest_pair.reversed().apply_to(&mut solution); // revert the change
+        minimizing_pair.reversed().apply_to(&mut solution); // revert the change
         Err(MinimizationFailedError(solution))
     }
 }
@@ -78,6 +70,14 @@ pub struct Pair(u32, u32);
 impl Pair {
     pub fn reversed(self) -> Pair {
         Pair(self.1, self.0)
+    }
+    /// Computes the effect of applying this pair to [`Solution::signed_delta`].
+    ///
+    /// Applying pair `(a, b)` produces a new delta `(left.sum() - a + b) - (right.sum() - b + a)`.
+    /// Distributing and reassociating gives `(left.sum() - right.sum()) + (-2a + 2b)`
+    #[inline]
+    pub fn relative_delta(self) -> i64 {
+        (self.1 as i64 - self.0 as i64) * 2
     }
     pub fn apply_to(self, sol: &mut Solution) {
         assert_ne!(self, Pair(0, 0), "zero pair is meaningless");
@@ -99,55 +99,21 @@ impl Pair {
         }
     }
 }
-fn meaningful_pairs(sol: &Solution) -> impl Iterator<Item = Pair> + '_ {
+fn possible_pairs(sol: &Solution) -> impl Iterator<Item = Pair> + '_ {
     assert!(
         !sol.left.is_empty() || !sol.right.is_empty(),
         "both sets are empty"
     );
-    assert_ne!(sol.left.smallest(), Some(0), "zero entry is forbidden");
-    assert_ne!(sol.right.smallest(), Some(0), "zero entry is forbidden");
-    assert_ne!(sol.left.smallest(), sol.right.smallest());
-    let zero_pairs = [
-        sol.left.smallest().map(|val| Pair(val, 0)),
-        sol.right.smallest().map(|val| Pair(0, val)),
-    ]
-    .into_iter()
-    .flatten();
-    let nonzero_left_pairs = sol.left.iter().filter_map(move |left_value| {
-        let closest_right = closest_of(&sol.right, left_value)?;
-        assert_ne!(
-            closest_right, left_value,
-            "both sets contain value: {sol:?}"
-        );
-        Some(Pair(left_value, closest_right))
-    });
-    let nonzero_right_pairs = sol.right.iter().filter_map(move |right_value| {
-        let closest_left = closest_of(&sol.left, right_value)?;
-        Some(Pair(closest_left, right_value))
-    });
-    zero_pairs
-        .chain(nonzero_left_pairs)
-        .chain(nonzero_right_pairs)
-}
-
-/// Minimize two optional values, returning `None` only if both inputs are `None`..
-fn minimize_opt_by<T, K: Ord>(
-    x: Option<T>,
-    y: Option<T>,
-    mut func: impl FnMut(&T) -> K,
-) -> Option<T> {
-    match (x, y) {
-        (Some(a), Some(b)) => Some(if func(&a) < func(&b) { a } else { b }),
-        (Some(y), None) | (None, Some(y)) => Some(y),
-        (None, None) => None,
-    }
-}
-fn closest_of(set: &NumberSet, x: u32) -> Option<u32> {
-    minimize_opt_by(
-        set.first_below(Bound::Excluded(x)),
-        set.first_above(Bound::Excluded(x)),
-        |y| y.abs_diff(x),
-    )
+    sol.left
+        .iter()
+        .chain(std::iter::once(0))
+        .flat_map(|left_value| {
+            let extra = if left_value != 0 { Some(0) } else { None };
+            sol.right
+                .iter()
+                .chain(extra)
+                .map(move |right_value| Pair(left_value, right_value))
+        })
 }
 
 #[derive(Debug, Clone)]
@@ -425,22 +391,27 @@ mod test {
     use super::*;
 
     #[track_caller]
-    fn verify_with(inputs: &[u32], expected_result: u64, problem: fn(&[u32]) -> Solution) {
+    fn verify_with(
+        inputs: &[u32],
+        expected_result: u64,
+        problem: fn(&[u32]) -> Solution,
+    ) -> Solution {
         let actual_result = problem(inputs.as_ref());
         assert_eq!(
             actual_result.abs_delta(),
             expected_result,
             "Unexpected result {actual_result:?} for {inputs:?}"
-        )
+        );
+        actual_result
     }
 
     #[track_caller]
-    fn verify_naive(inputs: impl AsRef<[u32]>, expected_value: u64) {
+    fn verify_naive(inputs: impl AsRef<[u32]>, expected_value: u64) -> Solution {
         verify_with(inputs.as_ref(), expected_value, naive_problem)
     }
 
     #[track_caller]
-    fn verify(inputs: impl AsRef<[u32]>, expected_value: u64) {
+    fn verify(inputs: impl AsRef<[u32]>, expected_value: u64) -> Solution {
         verify_with(inputs.as_ref(), expected_value, problem)
     }
 
