@@ -21,43 +21,27 @@ pub const MAX_INPUTS: usize = 20;
 pub const MAX_WEIGHT: u32 = 10u32.pow(9);
 
 pub fn problem(weights: &[u32]) -> Solution {
-    let mut solution = Solution::begin(weights);
-    loop {
-        let prev_delta = solution.abs_delta();
-        match minimize_difference(solution) {
-            Ok(reduced) => {
-                assert!(reduced.abs_delta() < prev_delta);
-                solution = reduced;
-            }
-            Err(MinimizationFailedError(minimal)) => return minimal,
-        }
-    }
+    let mut weights = weights.to_vec();
+    weights.sort();
+    minimize(&weights)
 }
-
-/// Minimize the difference between the two values, returning
-fn minimize_difference(mut solution: Solution) -> Result<Solution, MinimizationFailedError> {
-    if solution.signed_delta() == 0 {
-        // already minimal
-        return Err(MinimizationFailedError(solution));
-    }
-    assert!(!solution.left.is_empty() || !solution.right.is_empty());
-    let orig_delta = solution.signed_delta();
-    let minimizing_pair = possible_pairs(&solution)
-        .min_by_key(|&pair| (orig_delta + pair.relative_delta()).abs())
-        .unwrap();
-    let new_delta = orig_delta + minimizing_pair.relative_delta();
-    // println!("found pair {minimizing_pair:?} for {orig_delta} -> {new_delta}, {solution:?}");
-    minimizing_pair.apply_to(&mut solution);
-    assert_eq!(
-        solution.signed_delta(),
-        new_delta,
-        "incorrectly computed new_delta"
-    );
-    if new_delta.abs() < orig_delta.abs() {
-        Ok(solution)
-    } else {
-        minimizing_pair.reversed().apply_to(&mut solution); // revert the change
-        Err(MinimizationFailedError(solution))
+fn minimize(weights: &[u32]) -> Solution {
+    match weights {
+        &[] => panic!("weights should not be empty"),
+        &[a] => Solution::begin([a]),
+        &[a, b] => Solution {
+            left: NumberSet::from([a]),
+            right: NumberSet::from([b]),
+        },
+        &[ref subproblem @ .., smallest] => {
+            let mut sol = minimize(subproblem);
+            if sol.left.sum() > sol.right.sum() {
+                sol.right.insert(smallest);
+            } else {
+                sol.left.insert(smallest);
+            }
+            sol
+        }
     }
 }
 
@@ -98,22 +82,6 @@ impl Pair {
             sol.move_to_left(self.1);
         }
     }
-}
-fn possible_pairs(sol: &Solution) -> impl Iterator<Item = Pair> + '_ {
-    assert!(
-        !sol.left.is_empty() || !sol.right.is_empty(),
-        "both sets are empty"
-    );
-    sol.left
-        .iter()
-        .chain(std::iter::once(0))
-        .flat_map(|left_value| {
-            let extra = if left_value != 0 { Some(0) } else { None };
-            sol.right
-                .iter()
-                .chain(extra)
-                .map(move |right_value| Pair(left_value, right_value))
-        })
 }
 
 #[derive(Debug, Clone)]
@@ -325,6 +293,11 @@ mod set {
     impl From<&[u32]> for NumberSet {
         fn from(value: &[u32]) -> Self {
             value.iter().copied().collect::<NumberSet>()
+        }
+    }
+    impl<const N: usize> From<[u32; N]> for NumberSet {
+        fn from(value: [u32; N]) -> Self {
+            value.into_iter().collect::<NumberSet>()
         }
     }
     impl IntoIterator for NumberSet {
