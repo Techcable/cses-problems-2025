@@ -21,28 +21,33 @@ pub const MAX_INPUTS: usize = 20;
 pub const MAX_WEIGHT: u32 = 10u32.pow(9);
 
 pub fn problem(weights: &[u32]) -> Solution {
-    let mut weights = weights.to_vec();
-    weights.sort();
-    minimize(&weights)
+    minimize(Solution::begin(weights))
 }
-fn minimize(weights: &[u32]) -> Solution {
-    match weights {
-        &[] => panic!("weights should not be empty"),
-        &[a] => Solution::begin([a]),
-        &[a, b] => Solution {
-            left: NumberSet::from([a]),
-            right: NumberSet::from([b]),
-        },
-        &[ref subproblem @ .., smallest] => {
-            let mut sol = minimize(subproblem);
-            if sol.left.sum() > sol.right.sum() {
-                sol.right.insert(smallest);
-            } else {
-                sol.left.insert(smallest);
-            }
-            sol
+fn minimize(mut sol: Solution) -> Solution {
+    let mut prev_delta = sol.abs_delta();
+    while sol.left.sum() != sol.right.sum() {
+        prev_delta = sol.abs_delta();
+        if sol.left.sum() > sol.right.sum() {
+            sol.move_to_right(
+                sol.left
+                    .closest_number(saturating_cast(sol.abs_delta()))
+                    .unwrap(),
+            );
+        } else {
+            sol.move_to_left(
+                sol.right
+                    .closest_number(saturating_cast(sol.abs_delta()))
+                    .unwrap(),
+            );
+        }
+        if sol.abs_delta() >= prev_delta {
+            break; // no progress being made
         }
     }
+    sol
+}
+fn saturating_cast(x: u64) -> u32 {
+    x.min(u32::MAX as u64) as u32
 }
 
 /// Indicates the solution cannot be minimized further.
@@ -84,6 +89,21 @@ impl Pair {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SetIndex {
+    Left,
+    Right,
+}
+impl SetIndex {
+    #[inline]
+    pub fn other(self) -> SetIndex {
+        match self {
+            SetIndex::Left => SetIndex::Right,
+            SetIndex::Right => SetIndex::Left,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Solution {
     left: NumberSet,
@@ -109,6 +129,29 @@ impl Solution {
     pub fn move_to_left(&mut self, value: u32) {
         self.right.remove(value);
         self.left.insert(value);
+    }
+    #[track_caller]
+    pub fn move_to(&mut self, dest: SetIndex, value: u32) {
+        match dest {
+            SetIndex::Left => self.move_to_left(value),
+            SetIndex::Right => self.move_to_right(value),
+        }
+    }
+    fn find_number(&self, x: u32) -> Option<SetIndex> {
+        match (self.left.contains(x), self.right.contains(x)) {
+            (true, true) => panic!("both sets contain {x}"),
+            (false, true) => Some(SetIndex::Right),
+            (true, false) => Some(SetIndex::Left),
+            (false, false) => None,
+        }
+    }
+    pub fn closest_number(&self, tgt: u32) -> u32 {
+        pick_closest_opt(
+            self.left.closest_number(tgt),
+            self.right.closest_number(tgt),
+            tgt,
+        )
+        .expect("empty solution")
     }
     /// The delta for this pair, which is how much bigger the `left` sum is than the `right` sum.
     pub fn signed_delta(&self) -> i64 {
@@ -151,6 +194,15 @@ pub fn naive_search(solution: &mut Solution, func: &mut SuccessCallback) -> Cont
         solution.move_to_left(value);
     }
     ControlFlow::Continue(())
+}
+
+fn pick_closest_opt(a: Option<u32>, b: Option<u32>, tgt: u32) -> Option<u32> {
+    Some(match (a, b) {
+        (Some(a), Some(b)) if a.abs_diff(tgt) <= b.abs_diff(tgt) => a,
+        (Some(a), Some(b)) => b,
+        (Some(x), None) | (None, Some(x)) => x,
+        (None, None) => return None,
+    })
 }
 
 mod set {
@@ -210,6 +262,14 @@ mod set {
 
         pub fn first_above(&self, x: Bound<u32>) -> Option<u32> {
             self.range((x.as_ref(), Bound::Unbounded)).next()
+        }
+
+        pub fn closest_number(&self, tgt: u32) -> Option<u32> {
+            super::pick_closest_opt(
+                self.first_above(Bound::Included(tgt)),
+                self.first_below(Bound::Included(tgt)),
+                tgt,
+            )
         }
 
         pub fn contains(&self, x: u32) -> bool {
