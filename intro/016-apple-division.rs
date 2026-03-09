@@ -12,7 +12,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(str::parse::<u32>)
         .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(num_inputs, apple_weights.len());
-    println!("{}", problem(&apple_weights).signed_delta());
+    let sol = naive_problem(&apple_weights);
+    println!("{}", sol.signed_delta());
+    if std::env::var_os("NICKNINJA_DEBUG").is_some_and(|x| x == "1") {
+        eprintln!("{:?}", sol.left);
+        eprintln!("{:?}", sol.right);
+    }
     Ok(())
 }
 
