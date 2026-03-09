@@ -8,9 +8,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let apple_weights = lines
         .next()
         .unwrap()
-        .trim()
         .split_whitespace()
-        .map(|entry| entry.parse::<u32>())
+        .map(str::parse::<u32>)
         .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(num_inputs, apple_weights.len());
     println!("{}", problem(&apple_weights).signed_delta());
@@ -24,7 +23,7 @@ pub fn problem(weights: &[u32]) -> Solution {
     minimize(Solution::begin(weights))
 }
 fn minimize(mut sol: Solution) -> Solution {
-    let mut prev_delta = sol.abs_delta();
+    let mut prev_delta;
     while sol.left.sum() != sol.right.sum() {
         prev_delta = sol.abs_delta();
         if sol.left.sum() > sol.right.sum() {
@@ -46,12 +45,13 @@ fn minimize(mut sol: Solution) -> Solution {
     }
     sol
 }
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "overflow is both intentional and handled"
+)]
 fn saturating_cast(x: u64) -> u32 {
     x.min(u32::MAX as u64) as u32
 }
-
-/// Indicates the solution cannot be minimized further.
-struct MinimizationFailedError(Solution);
 
 /// Indicates a pair of values in a [`Solution`] that should be swapped,
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -137,7 +137,7 @@ impl Solution {
             SetIndex::Right => self.move_to_right(value),
         }
     }
-    fn find_number(&self, x: u32) -> Option<SetIndex> {
+    pub fn find_number(&self, x: u32) -> Option<SetIndex> {
         match (self.left.contains(x), self.right.contains(x)) {
             (true, true) => panic!("both sets contain {x}"),
             (false, true) => Some(SetIndex::Right),
@@ -154,7 +154,12 @@ impl Solution {
         .expect("empty solution")
     }
     /// The delta for this pair, which is how much bigger the `left` sum is than the `right` sum.
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "in this context, u64 -> i64 overflow is exceptionally rare"
+    )]
     pub fn signed_delta(&self) -> i64 {
+        // cannot use checked_signed_diff on 1.75
         (self.left.sum() as i64) - (self.right.sum() as i64)
     }
     #[inline]
@@ -199,7 +204,7 @@ pub fn naive_search(solution: &mut Solution, func: &mut SuccessCallback) -> Cont
 fn pick_closest_opt(a: Option<u32>, b: Option<u32>, tgt: u32) -> Option<u32> {
     Some(match (a, b) {
         (Some(a), Some(b)) if a.abs_diff(tgt) <= b.abs_diff(tgt) => a,
-        (Some(a), Some(b)) => b,
+        (Some(_), Some(b)) => b,
         (Some(x), None) | (None, Some(x)) => x,
         (None, None) => return None,
     })
