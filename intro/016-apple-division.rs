@@ -176,7 +176,7 @@ impl Solution {
         self.left.insert(value);
     }
     /// The delta for this pair, which is how much bigger the `left` sum is than the `right` sum.
-    #[expect(
+    #[allow(
         clippy::cast_possible_wrap,
         reason = "in this context, u64 -> i64 overflow is exceptionally rare"
     )]
