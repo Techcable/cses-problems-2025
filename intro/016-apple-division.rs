@@ -1,5 +1,5 @@
-use crate::set::NumberSet;
-use std::hash::{BuildHasherDefault, Hash, Hasher};
+use multiset::NumberMultiSet;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::ops::ControlFlow;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,13 +24,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn problem(apple_weights: &[u32]) -> Solution {
     let sum = apple_weights.iter().copied().map(u64::from).sum::<u64>();
-    let left = knapsack(apple_weights, (sum + 1) / 2);
-    eprintln!("{left:?} for {apple_weights:?}");
-    let right = apple_weights
-        .iter()
-        .copied()
-        .filter(|&x| !left.contains(x))
-        .collect::<NumberSet>();
+    let left = knapsack(apple_weights, sum.div_ceil(2));
+    let left = NumberMultiSet::from(left.as_slice());
+    let mut right = NumberMultiSet::from(apple_weights);
+    right.remove_all(&left);
     assert_eq!(
         left.sum() + right.sum(),
         sum,
@@ -133,7 +130,6 @@ pub fn knapsack(items: &[u32], max_weight: u64) -> Vec<u32> {
                 } else {
                     let mut list = knapsack(state, end_index - 1, max_weight - u64::from(new_item));
                     list.push(new_item);
-                    debug_assert_eq!(list.sum(), weight_including_new_item);
                     list
                 }
             }
@@ -145,36 +141,25 @@ pub fn knapsack(items: &[u32], max_weight: u64) -> Vec<u32> {
     };
     let result_sum = solve(&mut state, items.len(), max_weight);
     let set = knapsack(&state, items.len(), max_weight);
-    assert_eq!(set.iter().copied().sum(), result_sum, "{set:?}");
+    assert_eq!(
+        set.iter().copied().map(u64::from).sum::<u64>(),
+        result_sum,
+        "{set:?}"
+    );
     set
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum SetIndex {
-    Left,
-    Right,
-}
-impl SetIndex {
-    #[inline]
-    pub fn other(self) -> SetIndex {
-        match self {
-            SetIndex::Left => SetIndex::Right,
-            SetIndex::Right => SetIndex::Left,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Solution {
-    left: NumberSet,
-    right: NumberSet,
+    left: NumberMultiSet,
+    right: NumberMultiSet,
 }
 impl Solution {
     /// Begin a solution by placing everything on the left side.
-    pub fn begin(left: impl Into<NumberSet>) -> Solution {
+    pub fn begin(left: impl Into<NumberMultiSet>) -> Solution {
         Solution {
             left: left.into(),
-            right: NumberSet::new(),
+            right: NumberMultiSet::new(),
         }
     }
     pub fn swap(&mut self) {
@@ -189,21 +174,6 @@ impl Solution {
     pub fn move_to_left(&mut self, value: u32) {
         self.right.remove(value);
         self.left.insert(value);
-    }
-    #[track_caller]
-    pub fn move_to(&mut self, dest: SetIndex, value: u32) {
-        match dest {
-            SetIndex::Left => self.move_to_left(value),
-            SetIndex::Right => self.move_to_right(value),
-        }
-    }
-    pub fn find_number(&self, x: u32) -> Option<SetIndex> {
-        match (self.left.contains(x), self.right.contains(x)) {
-            (true, true) => panic!("both sets contain {x}"),
-            (false, true) => Some(SetIndex::Right),
-            (true, false) => Some(SetIndex::Left),
-            (false, false) => None,
-        }
     }
     /// The delta for this pair, which is how much bigger the `left` sum is than the `right` sum.
     #[expect(
@@ -244,8 +214,8 @@ pub fn naive_search(solution: &mut Solution, func: &mut SuccessCallback) -> Cont
     } else if !solution.right.is_empty() {
         func(solution)?;
     }
-    let mut iter = solution.left.detached_iter();
-    while let Some(value) = iter.next(&solution.left) {
+    let original_left = solution.left.iter().collect::<Vec<_>>();
+    for value in original_left {
         solution.move_to_right(value);
         naive_search(solution, func)?;
         solution.move_to_left(value);
@@ -253,35 +223,54 @@ pub fn naive_search(solution: &mut Solution, func: &mut SuccessCallback) -> Cont
     ControlFlow::Continue(())
 }
 
-mod set {
-    //! Defines the [`NumberSet`] type.
+mod multiset {
+    //! Defines the [`NumberMultiSet`] type.
     //!
     //! This is in its own module for better encapsulation.
-    use std::collections::{btree_set, BTreeSet};
+
+    use std::cmp::Ordering;
+    use std::collections::{btree_map, btree_map::Entry, BTreeMap};
+    use std::num::NonZeroUsize;
     use std::ops::{Bound, RangeBounds, RangeInclusive};
 
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct NumberSet {
-        values: BTreeSet<u32>,
+    pub struct NumberMultiSet {
+        occurrences: BTreeMap<u32, NonZeroUsize>,
+        len: usize,
         sum: u64,
     }
-    impl NumberSet {
+    impl NumberMultiSet {
         #[allow(clippy::new_without_default)] // pointless
-        pub const fn new() -> NumberSet {
-            NumberSet {
-                values: BTreeSet::new(),
+        pub const fn new() -> NumberMultiSet {
+            NumberMultiSet {
+                occurrences: BTreeMap::new(),
+                len: 0,
                 sum: 0,
             }
         }
 
         #[inline]
         pub fn is_empty(&self) -> bool {
-            self.values.is_empty()
+            debug_assert_eq!(self.len == 0, self.occurrences.is_empty());
+            self.occurrences.is_empty()
         }
 
         #[inline]
         pub fn len(&self) -> usize {
-            self.values.len()
+            self.len
+        }
+
+        #[inline]
+        #[track_caller]
+        pub fn verify_state(&self) {
+            assert_eq!(
+                self.iter()
+                    .fold((0usize, 0u64), |(old_count, old_sum), entry| {
+                        (old_count + 1, old_sum + u64::from(entry))
+                    }),
+                (self.len, self.sum),
+                "unexpected state"
+            );
         }
 
         #[inline]
@@ -290,33 +279,65 @@ mod set {
         }
 
         pub fn smallest(&self) -> Option<u32> {
-            self.values.first().copied()
+            self.occurrences.first_key_value().map(|(&key, _)| key)
         }
 
         pub fn largest(&self) -> Option<u32> {
-            self.values.last().copied()
+            self.occurrences.last_key_value().map(|(&key, _)| key)
         }
 
-        pub fn range(
+        pub fn remove_all(&mut self, other: &NumberMultiSet) {
+            self.verify_state();
+            for (&key, &other_count) in &other.occurrences {
+                let entry = self.occurrences.entry(key);
+                let old_count = match entry {
+                    Entry::Occupied(ref entry) => entry.get().get(),
+                    Entry::Vacant(_) => 0,
+                };
+                assert!(
+                    old_count >= other_count.get(),
+                    "Cannot remove {other_count} occurrences of {key}, because this set has only {old_count} occurrences"
+                );
+                let Entry::Occupied(mut entry) = entry else {
+                    unreachable!("vacant not possible because old_count >= other_count > 0")
+                };
+                match old_count.cmp(&other_count.get()) {
+                    Ordering::Less => unreachable!("already checked"),
+                    Ordering::Equal => {
+                        entry.remove();
+                    }
+                    Ordering::Greater => {
+                        let new_count = old_count - other_count.get();
+                        entry.insert(NonZeroUsize::new(new_count).unwrap());
+                    }
+                }
+                self.len -= other_count.get();
+            }
+            self.sum -= other.sum;
+            self.verify_state();
+        }
+
+        pub fn range_unique(
             &self,
             range: impl RangeBounds<u32>,
         ) -> impl DoubleEndedIterator<Item = u32> + '_ {
-            self.values.range(range).copied()
+            self.occurrences.range(range).map(|(&key, _)| key)
         }
 
         pub fn first_below(&self, x: Bound<u32>) -> Option<u32> {
-            self.range((Bound::Unbounded, x.as_ref())).next_back()
+            self.range_unique((Bound::Unbounded, x.as_ref()))
+                .next_back()
         }
 
         pub fn first_above(&self, x: Bound<u32>) -> Option<u32> {
-            self.range((x.as_ref(), Bound::Unbounded)).next()
+            self.range_unique((x.as_ref(), Bound::Unbounded)).next()
         }
 
         pub fn contains(&self, x: u32) -> bool {
-            self.values.contains(&x)
+            self.occurrences.contains_key(&x)
         }
 
-        pub fn to_range(&self) -> Result<RangeInclusive<u32>, RangeConvertError> {
+        pub fn to_range_unique(&self) -> Result<RangeInclusive<u32>, RangeConvertError> {
             if self.is_empty() {
                 Err(RangeConvertError::Empty)
             } else {
@@ -332,22 +353,18 @@ mod set {
             }
         }
 
-        /// Iterate over the elements of this set,
-        /// in order from least to greatest.
         #[inline]
-        pub fn iter(&self) -> Iter<'_> {
-            self.values.iter().copied()
+        pub fn iter(&self) -> impl Iterator<Item = u32> + '_ {
+            self.occurrences
+                .iter()
+                .flat_map(|(&key, &count)| std::iter::repeat(key).take(count.get()))
         }
 
         /// Iterate over the elements of this set,
-        /// without borrowing the input
+        /// in order from least to greatest.
         #[inline]
-        pub fn detached_iter(&self) -> DetachedIter {
-            DetachedIter {
-                expected_len: self.values.len(),
-                expected_sum: self.sum,
-                last: None,
-            }
+        pub fn iter_unique(&self) -> IterUnique<'_> {
+            self.occurrences.keys().copied()
         }
 
         /// Remove a value from this set,
@@ -364,47 +381,49 @@ mod set {
         /// returning `true` if successful.
         #[must_use = "result indicates if successful"]
         pub fn try_remove(&mut self, value: u32) -> bool {
-            let success = self.values.remove(&value);
-            if success {
-                self.sum -= value as u64;
+            match self.occurrences.entry(value) {
+                btree_map::Entry::Occupied(mut entry) => {
+                    let old_count = entry.get().get();
+                    match old_count {
+                        0 => unreachable!(),
+                        1 => {
+                            entry.remove();
+                        }
+                        _ => {
+                            entry.insert(NonZeroUsize::new(old_count - 1).unwrap());
+                        }
+                    }
+                    self.len -= 1;
+                    self.sum -= u64::from(value);
+                    true
+                }
+                btree_map::Entry::Vacant(_) => false,
             }
-            success
         }
 
-        /// Insert a value into this set,
-        /// panicking if already present.
+        /// Insert a value into this set.
         #[track_caller]
         pub fn insert(&mut self, value: u32) {
-            assert!(self.try_insert(value), "value {value} already present");
-        }
-
-        /// Insert a value into this set,
-        /// returning `true` if successful
-        /// or `false` if already present
-        #[must_use = "result indicates if successful"]
-        pub fn try_insert(&mut self, value: u32) -> bool {
-            let success = self.values.insert(value);
-            if success {
-                self.sum += value as u64;
+            match self.occurrences.entry(value) {
+                btree_map::Entry::Occupied(mut entry) => {
+                    entry.insert(entry.get().checked_add(1).unwrap());
+                }
+                btree_map::Entry::Vacant(entry) => {
+                    entry.insert(NonZeroUsize::new(1).unwrap());
+                }
             }
-            success
+            self.sum += u64::from(value);
+            self.len += 1;
         }
     }
-    impl From<&[u32]> for NumberSet {
+    impl From<&[u32]> for NumberMultiSet {
         fn from(value: &[u32]) -> Self {
-            value.iter().copied().collect::<NumberSet>()
+            value.iter().copied().collect::<NumberMultiSet>()
         }
     }
-    impl<const N: usize> From<[u32; N]> for NumberSet {
+    impl<const N: usize> From<[u32; N]> for NumberMultiSet {
         fn from(value: [u32; N]) -> Self {
-            value.into_iter().collect::<NumberSet>()
-        }
-    }
-    impl IntoIterator for NumberSet {
-        type Item = u32;
-        type IntoIter = btree_set::IntoIter<u32>;
-        fn into_iter(self) -> Self::IntoIter {
-            self.values.into_iter()
+            value.into_iter().collect::<NumberMultiSet>()
         }
     }
     #[derive(Debug, Clone)]
@@ -412,49 +431,15 @@ mod set {
         NotContiguous,
         Empty,
     }
-    pub type Iter<'a> = std::iter::Copied<btree_set::Iter<'a, u32>>;
-    /// A detached iterator over a [`NumberSet`] that doesn't borrow its input.
-    ///
-    /// If the set is unexpectedly modified during iteration,
-    /// this will either panic or return unexpected results.
-    pub struct DetachedIter {
-        expected_len: usize,
-        expected_sum: u64,
-        last: Option<u32>,
-    }
-    impl DetachedIter {
-        #[track_caller]
-        pub fn next(&mut self, set: &NumberSet) -> Option<u32> {
-            assert_eq!(
-                (set.len(), set.sum()),
-                (self.expected_len, self.expected_sum),
-                "set changed unexpectedly while iterator was detached"
-            );
-            match self.last {
-                None => {
-                    let res = set.values.first().copied();
-                    self.last = res;
-                    res
-                }
-                Some(ref last) => {
-                    let mut range = set.values.range((Bound::Excluded(*last), Bound::Unbounded));
-                    let res = range.next().copied();
-                    self.last = res;
-                    res
-                }
-            }
-        }
-    }
-    impl FromIterator<u32> for NumberSet {
+    pub type IterUnique<'a> = std::iter::Copied<btree_map::Keys<'a, u32, NonZeroUsize>>;
+    impl FromIterator<u32> for NumberMultiSet {
         fn from_iter<T: IntoIterator<Item = u32>>(iter: T) -> Self {
             let iter = iter.into_iter();
-            let mut set = BTreeSet::new();
-            let mut sum = 0u64;
+            let mut set = NumberMultiSet::new();
             for value in iter {
                 set.insert(value);
-                sum = sum.checked_add(value as u64).expect("sum overflow");
             }
-            NumberSet { sum, values: set }
+            set
         }
     }
 }
@@ -493,6 +478,11 @@ mod test {
         let inputs = [3, 2, 7, 4, 1];
         verify_naive(inputs, 1);
         verify(inputs, 1);
+    }
+
+    #[test]
+    fn many_duplicates() {
+        verify([1, 2, 2, 1, 3, 1, 1], 1);
     }
 
     #[test]
