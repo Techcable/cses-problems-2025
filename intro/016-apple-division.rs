@@ -1,4 +1,5 @@
 use crate::set::NumberSet;
+use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::ops::ControlFlow;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,77 +22,136 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+pub fn problem(apple_weights: &[u32]) -> Solution {
+    let sum = apple_weights.iter().copied().map(u64::from).sum::<u64>();
+    let left = knapsack(apple_weights, (sum + 1) / 2);
+    eprintln!("{left:?} for {apple_weights:?}");
+    let right = apple_weights
+        .iter()
+        .copied()
+        .filter(|&x| !left.contains(x))
+        .collect::<NumberSet>();
+    assert_eq!(
+        left.sum() + right.sum(),
+        sum,
+        "{apple_weights:?} => {left:?}, {right:?}"
+    );
+    Solution { left, right }
+}
+
 pub const MAX_INPUTS: usize = 20;
 pub const MAX_WEIGHT: u32 = 10u32.pow(9);
 
-pub fn problem(weights: &[u32]) -> Solution {
-    minimize(Solution::begin(weights))
+struct Fnv1Hash(std::num::Wrapping<u64>);
+impl Fnv1Hash {
+    const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x00000100000001b3;
 }
-fn minimize(mut sol: Solution) -> Solution {
-    let mut prev_delta;
-    while sol.left.sum() != sol.right.sum() {
-        prev_delta = sol.abs_delta();
-        if sol.left.sum() > sol.right.sum() {
-            sol.move_to_right(
-                sol.left
-                    .closest_number(saturating_cast(sol.abs_delta()))
-                    .unwrap(),
-            );
-        } else {
-            sol.move_to_left(
-                sol.right
-                    .closest_number(saturating_cast(sol.abs_delta()))
-                    .unwrap(),
-            );
-        }
-        if sol.abs_delta() >= prev_delta {
-            break; // no progress being made
+impl Default for Fnv1Hash {
+    #[inline]
+    fn default() -> Self {
+        Fnv1Hash(std::num::Wrapping(Self::OFFSET_BASIS))
+    }
+}
+impl Hasher for Fnv1Hash {
+    #[inline]
+    fn write_u8(&mut self, i: u8) {
+        self.0 *= Self::PRIME;
+        self.0 ^= i as u64;
+    }
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for &x in bytes {
+            self.write_u8(x);
         }
     }
-    sol
-}
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "overflow is both intentional and handled"
-)]
-fn saturating_cast(x: u64) -> u32 {
-    x.min(u32::MAX as u64) as u32
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0 .0
+    }
 }
 
-/// Indicates a pair of values in a [`Solution`] that should be swapped,
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub struct Pair(u32, u32);
-impl Pair {
-    pub fn reversed(self) -> Pair {
-        Pair(self.1, self.0)
+/// Solves 0-1 knapsack problem using dynamic programming.
+pub fn knapsack(items: &[u32], max_weight: u64) -> NumberSet {
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+    struct CachedEntry {
+        last_value: Option<u32>,
+        total_weight: u64,
     }
-    /// Computes the effect of applying this pair to [`Solution::signed_delta`].
-    ///
-    /// Applying pair `(a, b)` produces a new delta `(left.sum() - a + b) - (right.sum() - b + a)`.
-    /// Distributing and reassociating gives `(left.sum() - right.sum()) + (-2a + 2b)`
-    #[inline]
-    pub fn relative_delta(self) -> i64 {
-        (self.1 as i64 - self.0 as i64) * 2
-    }
-    pub fn apply_to(self, sol: &mut Solution) {
-        assert_ne!(self, Pair(0, 0), "zero pair is meaningless");
-        assert!(
-            self.0 == 0 || sol.left.contains(self.0),
-            "missing value {a} for {self:?}, {sol:?}",
-            a = self.0
-        );
-        assert!(
-            self.1 == 0 || sol.right.contains(self.1),
-            "missing value {b} for {self:?}, {sol:?}",
-            b = self.1
-        );
-        if self.0 != 0 {
-            sol.move_to_right(self.0);
-        }
-        if self.1 != 0 {
-            sol.move_to_left(self.1);
+    impl CachedEntry {
+        fn add_item(&self, val: u32) -> Self {
+            CachedEntry {
+                last_value: Some(val),
+                total_weight: self.total_weight + u64::from(val),
+            }
         }
     }
+    type HashMap = std::collections::HashMap<u64, CachedEntry, BuildHasherDefault<Fnv1Hash>>;
+    assert!(!items.is_empty());
+    struct State<'a> {
+        /// An map of `max_weight -> last_value` indexed by `end_index`.
+        ///
+        /// Excludes `end_index = 0`, but includes `end_index = items.len()`.
+        /// Hence has length `items.len()`
+        cache: Vec<HashMap>,
+        items: &'a [u32],
+    }
+    fn get(state: &State, end_index: usize, max_weight: u64) -> Option<CachedEntry> {
+        assert!(end_index <= state.items.len());
+        if end_index == 0 || max_weight == 0 {
+            Some(CachedEntry {
+                last_value: None,
+                total_weight: 0,
+            })
+        } else {
+            state.cache[end_index - 1].get(&max_weight).copied()
+        }
+    }
+    fn solve(state: &mut State, end_index: usize, max_weight: u64) -> CachedEntry {
+        assert!(end_index <= state.items.len());
+        if let Some(existing) = get(state, end_index, max_weight) {
+            existing
+        } else {
+            let new_item = state.items[end_index - 1];
+            let res = if u64::from(new_item) > max_weight {
+                solve(&mut *state, end_index - 1, max_weight)
+            } else {
+                let excluding_new_item = solve(&mut *state, end_index - 1, max_weight);
+                let including_new_item =
+                    solve(&mut *state, end_index - 1, max_weight - u64::from(new_item))
+                        .add_item(new_item);
+                if excluding_new_item.total_weight > including_new_item.total_weight {
+                    excluding_new_item
+                } else {
+                    including_new_item
+                }
+            };
+            let old_val = state.cache[end_index - 1].insert(max_weight, res);
+            assert!(old_val.is_none() || old_val == Some(res), "{old_val:?}");
+            res
+        }
+    }
+    let mut result = Vec::new();
+    let mut state = State {
+        items,
+        cache: vec![HashMap::default(); items.len()],
+    };
+    let mut last_entry = Some(solve(&mut state, items.len(), max_weight));
+    let result_sum = last_entry.unwrap().total_weight;
+    while let Some(last_item) = last_entry.and_then(|entry| entry.last_value) {
+        let item_index = items.iter().position(|&x| x == last_item).unwrap();
+        result.push(last_item);
+        last_entry = if item_index == 0 {
+            None
+        } else {
+            get(&state, item_index - 1, max_weight - u64::from(last_item))
+        };
+    }
+    result.reverse();
+    let set = NumberSet::from(result.as_slice());
+    assert_eq!(set.sum(), result_sum, "{set:?}");
+    assert!(result_sum <= max_weight);
+    set
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -150,14 +210,6 @@ impl Solution {
             (false, false) => None,
         }
     }
-    pub fn closest_number(&self, tgt: u32) -> u32 {
-        pick_closest_opt(
-            self.left.closest_number(tgt),
-            self.right.closest_number(tgt),
-            tgt,
-        )
-        .expect("empty solution")
-    }
     /// The delta for this pair, which is how much bigger the `left` sum is than the `right` sum.
     #[expect(
         clippy::cast_possible_wrap,
@@ -204,15 +256,6 @@ pub fn naive_search(solution: &mut Solution, func: &mut SuccessCallback) -> Cont
         solution.move_to_left(value);
     }
     ControlFlow::Continue(())
-}
-
-fn pick_closest_opt(a: Option<u32>, b: Option<u32>, tgt: u32) -> Option<u32> {
-    Some(match (a, b) {
-        (Some(a), Some(b)) if a.abs_diff(tgt) <= b.abs_diff(tgt) => a,
-        (Some(_), Some(b)) => b,
-        (Some(x), None) | (None, Some(x)) => x,
-        (None, None) => return None,
-    })
 }
 
 mod set {
@@ -272,14 +315,6 @@ mod set {
 
         pub fn first_above(&self, x: Bound<u32>) -> Option<u32> {
             self.range((x.as_ref(), Bound::Unbounded)).next()
-        }
-
-        pub fn closest_number(&self, tgt: u32) -> Option<u32> {
-            super::pick_closest_opt(
-                self.first_above(Bound::Included(tgt)),
-                self.first_below(Bound::Included(tgt)),
-                tgt,
-            )
         }
 
         pub fn contains(&self, x: u32) -> bool {
