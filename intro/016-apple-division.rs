@@ -72,21 +72,8 @@ impl Hasher for Fnv1Hash {
 }
 
 /// Solves 0-1 knapsack problem using dynamic programming.
-pub fn knapsack(items: &[u32], max_weight: u64) -> NumberSet {
-    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-    struct CachedEntry {
-        last_value: Option<u32>,
-        total_weight: u64,
-    }
-    impl CachedEntry {
-        fn add_item(&self, val: u32) -> Self {
-            CachedEntry {
-                last_value: Some(val),
-                total_weight: self.total_weight + u64::from(val),
-            }
-        }
-    }
-    type HashMap = std::collections::HashMap<u64, CachedEntry, BuildHasherDefault<Fnv1Hash>>;
+pub fn knapsack(items: &[u32], max_weight: u64) -> Vec<u32> {
+    type HashMap = std::collections::HashMap<u64, u64, BuildHasherDefault<Fnv1Hash>>;
     assert!(!items.is_empty());
     struct State<'a> {
         /// An map of `max_weight -> last_value` indexed by `end_index`.
@@ -96,18 +83,15 @@ pub fn knapsack(items: &[u32], max_weight: u64) -> NumberSet {
         cache: Vec<HashMap>,
         items: &'a [u32],
     }
-    fn get(state: &State, end_index: usize, max_weight: u64) -> Option<CachedEntry> {
+    fn get(state: &State, end_index: usize, max_weight: u64) -> Option<u64> {
         assert!(end_index <= state.items.len());
         if end_index == 0 || max_weight == 0 {
-            Some(CachedEntry {
-                last_value: None,
-                total_weight: 0,
-            })
+            Some(0)
         } else {
             state.cache[end_index - 1].get(&max_weight).copied()
         }
     }
-    fn solve(state: &mut State, end_index: usize, max_weight: u64) -> CachedEntry {
+    fn solve(state: &mut State, end_index: usize, max_weight: u64) -> u64 {
         assert!(end_index <= state.items.len());
         if let Some(existing) = get(state, end_index, max_weight) {
             existing
@@ -119,8 +103,8 @@ pub fn knapsack(items: &[u32], max_weight: u64) -> NumberSet {
                 let excluding_new_item = solve(&mut *state, end_index - 1, max_weight);
                 let including_new_item =
                     solve(&mut *state, end_index - 1, max_weight - u64::from(new_item))
-                        .add_item(new_item);
-                if excluding_new_item.total_weight > including_new_item.total_weight {
+                        + u64::from(new_item);
+                if excluding_new_item > including_new_item {
                     excluding_new_item
                 } else {
                     including_new_item
@@ -131,26 +115,37 @@ pub fn knapsack(items: &[u32], max_weight: u64) -> NumberSet {
             res
         }
     }
-    let mut result = Vec::new();
+    fn knapsack(state: &State, end_index: usize, max_weight: u64) -> Vec<u32> {
+        // mirrors the solve method but computes the actual set as well
+        if end_index == 0 || max_weight == 0 {
+            Vec::with_capacity(state.items.len())
+        } else {
+            let new_item = state.items[end_index - 1];
+            if u64::from(new_item) > max_weight {
+                knapsack(state, end_index - 1, max_weight)
+            } else {
+                let weight_excluding_new_item = get(state, end_index - 1, max_weight).unwrap();
+                let weight_including_new_item =
+                    get(state, end_index - 1, max_weight - u64::from(new_item)).unwrap()
+                        + u64::from(new_item);
+                if weight_excluding_new_item > weight_including_new_item {
+                    knapsack(state, end_index - 1, max_weight)
+                } else {
+                    let mut list = knapsack(state, end_index - 1, max_weight - u64::from(new_item));
+                    list.push(new_item);
+                    debug_assert_eq!(list.sum(), weight_including_new_item);
+                    list
+                }
+            }
+        }
+    }
     let mut state = State {
         items,
         cache: vec![HashMap::default(); items.len()],
     };
-    let mut last_entry = Some(solve(&mut state, items.len(), max_weight));
-    let result_sum = last_entry.unwrap().total_weight;
-    while let Some(last_item) = last_entry.and_then(|entry| entry.last_value) {
-        let item_index = items.iter().position(|&x| x == last_item).unwrap();
-        result.push(last_item);
-        last_entry = if item_index == 0 {
-            None
-        } else {
-            get(&state, item_index - 1, max_weight - u64::from(last_item))
-        };
-    }
-    result.reverse();
-    let set = NumberSet::from(result.as_slice());
-    assert_eq!(set.sum(), result_sum, "{set:?}");
-    assert!(result_sum <= max_weight);
+    let result_sum = solve(&mut state, items.len(), max_weight);
+    let set = knapsack(&state, items.len(), max_weight);
+    assert_eq!(set.iter().copied().sum(), result_sum, "{set:?}");
     set
 }
 
