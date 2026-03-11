@@ -451,7 +451,7 @@ mod test {
         expected_result: u64,
         problem: fn(&[u32]) -> Solution,
     ) -> Solution {
-        let actual_result = problem(inputs.as_ref());
+        let actual_result = problem(inputs);
         assert_eq!(
             actual_result.abs_delta(),
             expected_result,
