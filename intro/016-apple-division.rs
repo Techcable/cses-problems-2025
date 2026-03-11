@@ -176,10 +176,7 @@ impl Solution {
         self.left.insert(value);
     }
     /// The delta for this pair, which is how much bigger the `left` sum is than the `right` sum.
-    #[allow(
-        clippy::cast_possible_wrap,
-        reason = "in this context, u64 -> i64 overflow is exceptionally rare"
-    )]
+    #[allow(clippy::cast_possible_wrap)] // in this context, u64 -> i64 overflow is rare
     pub fn signed_delta(&self) -> i64 {
         // cannot use checked_signed_diff on 1.75
         (self.left.sum() as i64) - (self.right.sum() as i64)
