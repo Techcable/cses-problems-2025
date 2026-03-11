@@ -3,8 +3,67 @@ use chess_matrix::{ChessBitMatrix, ChessMatrix, MatrixIndex};
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
     let reserved = input.parse::<ChessBitMatrix>()?;
-    let matrix = ChessBitMatrix::new();
+    println!("{}", problem(reserved));
     Ok(())
+}
+
+pub fn problem(reserved: ChessBitMatrix) -> u64 {
+    let queen_attack_table = queen_attack_table();
+    count_sols(&State {
+        queen_attack_table: &queen_attack_table,
+        forbidden_positions: reserved,
+        level: 0,
+    })
+}
+struct State<'a> {
+    queen_attack_table: &'a QueenAttackTable,
+    forbidden_positions: ChessBitMatrix,
+    level: usize,
+}
+static GLOBAL_STEP_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+const STEP_COUNT_LIMIT: usize = 1000;
+fn take_step() {
+    if GLOBAL_STEP_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) > STEP_COUNT_LIMIT {
+        // std::process::abort();
+    }
+}
+
+fn count_sols(state: &State) -> u64 {
+    take_step();
+    let indent = "  ".repeat(state.level);
+    for line in format!(
+        "forbidden {} with card {}",
+        state.forbidden_positions,
+        state.forbidden_positions.cardinality()
+    )
+    .lines()
+    {
+        // println!("{indent}{line}");
+    }
+    if state.forbidden_positions.is_full() {
+        return 0;
+    }
+    state
+        .forbidden_positions
+        .zeros()
+        .map(|free_pos| {
+            take_step();
+            // println!("{indent}free pos {free_pos:?}");
+            debug_assert!(!state.forbidden_positions.get(free_pos.row, free_pos.col));
+            let attacks = state.queen_attack_table[free_pos];
+            // should attack itself
+            debug_assert!(attacks.get(free_pos.row, free_pos.col));
+            let new_forbidden_positions = state.forbidden_positions | attacks;
+            debug_assert!(
+                new_forbidden_positions.cardinality() > state.forbidden_positions.cardinality()
+            );
+            1 + count_sols(&State {
+                queen_attack_table: state.queen_attack_table,
+                forbidden_positions: new_forbidden_positions,
+                level: state.level + 1,
+            })
+        })
+        .sum::<u64>()
 }
 
 type QueenAttackTable = ChessMatrix<ChessBitMatrix>;
@@ -80,18 +139,24 @@ pub mod chess_matrix {
             row * Self::COLS + col
         }
     }
+    impl<V> std::ops::Index<MatrixIndex> for ChessMatrix<V> {
+        type Output = V;
+        fn index(&self, index: MatrixIndex) -> &Self::Output {
+            let full_index = Self::full_index(index);
+            &self.matrix[full_index]
+        }
+    }
     impl<V> std::ops::Index<(u32, u32)> for ChessMatrix<V> {
         type Output = V;
         #[inline]
         fn index(&self, index: (u32, u32)) -> &V {
-            let index = Self::full_index(index.into());
-            &self.matrix[index]
+            &self[MatrixIndex::from(index)]
         }
     }
-    impl<V> std::ops::IndexMut<(u32, u32)> for ChessMatrix<V> {
+    impl<V> std::ops::IndexMut<MatrixIndex> for ChessMatrix<V> {
         #[inline]
-        fn index_mut(&mut self, index: (u32, u32)) -> &mut V {
-            let index = Self::full_index(index.into());
+        fn index_mut(&mut self, index: MatrixIndex) -> &mut V {
+            let index = Self::full_index(index);
             &mut self.matrix[index]
         }
     }
@@ -116,9 +181,19 @@ pub mod chess_matrix {
             self.bits.count_ones() as usize
         }
         #[inline]
-        pub fn ones(&self) -> Ones {
-            Ones {
+        pub fn is_full(&self) -> bool {
+            self.bits == u64::MAX
+        }
+        #[inline]
+        pub fn ones(&self) -> PosIter {
+            PosIter {
                 remaining_word: self.bits,
+            }
+        }
+        #[inline]
+        pub fn zeros(&self) -> PosIter {
+            PosIter {
+                remaining_word: !self.bits,
             }
         }
         #[inline] // want const-folding and DCE
@@ -176,10 +251,10 @@ pub mod chess_matrix {
         }
     }
     #[derive(Clone)]
-    pub struct Ones {
+    pub struct PosIter {
         remaining_word: u64,
     }
-    impl Iterator for Ones {
+    impl Iterator for PosIter {
         type Item = MatrixIndex;
         #[inline]
         fn size_hint(&self) -> (usize, Option<usize>) {
@@ -190,6 +265,7 @@ pub mod chess_matrix {
         fn next(&mut self) -> Option<Self::Item> {
             if self.remaining_word != 0 {
                 let one_index = self.remaining_word.trailing_zeros();
+                self.remaining_word &= !(1 << one_index);
                 Some(ChessBitMatrix::matrix_index(BitIndex {
                     bit_index: one_index,
                 }))
@@ -198,8 +274,8 @@ pub mod chess_matrix {
             }
         }
     }
-    impl std::iter::ExactSizeIterator for Ones {}
-    impl std::iter::FusedIterator for Ones {}
+    impl std::iter::ExactSizeIterator for PosIter {}
+    impl std::iter::FusedIterator for PosIter {}
     impl FromStr for ChessBitMatrix {
         type Err = BoardParseError;
         fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -248,9 +324,9 @@ pub mod chess_matrix {
                 }
                 for col in 0..Self::ROWS {
                     if self.get(row, col) {
-                        f.write_char('.')?;
-                    } else {
                         f.write_char('*')?;
+                    } else {
+                        f.write_char('.')?;
                     }
                 }
             }
@@ -309,5 +385,27 @@ pub mod chess_matrix {
                 col: value.1 as usize,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::problem;
+    use indoc::indoc;
+
+    const EXAMPLE_INPUT_STR: &str = indoc!(
+        "........
+        ........
+        ..*.....
+        ........
+        ........
+        .....**.
+        ...*....
+        ........"
+    );
+
+    #[test]
+    fn example() {
+        assert_eq!(problem(EXAMPLE_INPUT_STR.parse().unwrap()), 65);
     }
 }
