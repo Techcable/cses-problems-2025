@@ -42,6 +42,8 @@ fn count_sols(state: &State) -> u64 {
     }
     if state.forbidden_positions.is_full() {
         return 0;
+    } else if state.forbidden_positions.cardinality() == 63 {
+        return 1;
     }
     state
         .forbidden_positions
@@ -57,7 +59,7 @@ fn count_sols(state: &State) -> u64 {
             debug_assert!(
                 new_forbidden_positions.cardinality() > state.forbidden_positions.cardinality()
             );
-            1 + count_sols(&State {
+            count_sols(&State {
                 queen_attack_table: state.queen_attack_table,
                 forbidden_positions: new_forbidden_positions,
                 level: state.level + 1,
