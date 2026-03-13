@@ -44,13 +44,37 @@ impl State {
         queen_pos: MatrixIndex,
         func: impl FnOnce(&mut Self) -> R,
     ) -> R {
+        let old_forbidden_positions = self.forbidden_positions;
+        let old_num_queens = self.current_num_queens;
+        let attacks = self.queen_attack_table[queen_pos];
+        let new_forbidden_positions = old_forbidden_positions | attacks;
+        // verify arguments & old information is good
         assert!(self.current_num_queens < self.target_num_queens);
+        assert!(
+            !old_forbidden_positions.get(queen_pos.row, queen_pos.col),
+            "position {queen_pos:?} is forbidden"
+        );
+        // every space should attack itself
+        debug_assert!(attacks.get(queen_pos.row, queen_pos.col));
+        // should have more forbidden positions then we did previously
+        debug_assert!(
+            new_forbidden_positions.cardinality() > old_forbidden_positions.cardinality()
+        );
+        // update state before recursion
         self.current_num_queens += 1;
-        let new_num_queens = self.current_num_queens;
         self.queen_placements.push(queen_pos);
+        self.forbidden_positions = new_forbidden_positions;
+        // recurse
         let res = func(self);
-        assert_eq!(self.current_num_queens, new_num_queens);
-        self.current_num_queens -= 1;
+        // restore old state, asserting current state is as expected
+        assert_eq!(
+            std::mem::replace(&mut self.current_num_queens, old_num_queens),
+            old_num_queens + 1
+        );
+        assert_eq!(
+            std::mem::replace(&mut self.forbidden_positions, old_forbidden_positions),
+            new_forbidden_positions
+        );
         assert_eq!(self.queen_placements.pop(), Some(queen_pos));
         res
     }
@@ -99,14 +123,6 @@ fn count_sols(state: &mut State) -> u64 {
                 let indent = "  ".repeat(state.level);
                 eprintln!("{indent}free pos {free_pos:?}");
             }
-            debug_assert!(!state.forbidden_positions.get(free_pos.row, free_pos.col));
-            let attacks = state.queen_attack_table[free_pos];
-            // should attack itself
-            debug_assert!(attacks.get(free_pos.row, free_pos.col));
-            let new_forbidden_positions = state.forbidden_positions | attacks;
-            debug_assert!(
-                new_forbidden_positions.cardinality() > state.forbidden_positions.cardinality()
-            );
             state.with_additional_queen(free_pos, count_sols)
         })
         .sum::<u64>()
@@ -207,7 +223,7 @@ pub mod chess_matrix {
         }
     }
 
-    #[derive(Copy, Clone, Default)]
+    #[derive(Copy, Clone, Default, Eq, PartialEq)]
     pub struct ChessBitMatrix {
         /// A 2d bit-matrix using row-major order
         bits: u64,
@@ -362,6 +378,11 @@ pub mod chess_matrix {
         }
     }
     impl std::error::Error for BoardParseError {}
+    impl Debug for ChessBitMatrix {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "ChessBitMatrix({self})")
+        }
+    }
     impl Display for ChessBitMatrix {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             for row in 0..Self::COLS {
