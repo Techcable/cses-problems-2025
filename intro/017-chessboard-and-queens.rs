@@ -15,6 +15,7 @@ struct State {
     forbidden_positions: ChessBitMatrix,
     level: usize,
     queen_placements: Vec<MatrixIndex>,
+    seen_positions: std::collections::HashSet<Vec<MatrixIndex>>,
     current_num_queens: u32,
     target_num_queens: u32,
 }
@@ -26,6 +27,7 @@ impl State {
             queen_attack_table: QUEEN_ATTACK_TABLE.get_or_init(queen_attack_table),
             forbidden_positions: ChessBitMatrix::new(),
             queen_placements: Vec::with_capacity(target_num_queens as usize),
+            seen_positions: std::collections::HashSet::new(),
             level: 0,
             current_num_queens: 0,
             target_num_queens,
@@ -107,6 +109,11 @@ fn count_sols(state: &mut State) -> u64 {
         state.current_num_queens as usize
     );
     if state.current_num_queens == state.target_num_queens {
+        let mut sorted_placements = state.queen_placements.clone();
+        sorted_placements.sort_by_key(|index| (index.row, index.col));
+        if !state.seen_positions.insert(sorted_placements) {
+            return 0;
+        }
         if should_debug() {
             let indent = "  ".repeat(state.level);
             eprintln!("{indent}placement {:?}", state.queen_placements);
@@ -428,7 +435,7 @@ pub mod chess_matrix {
             1u64 << self.bit_index
         }
     }
-    #[derive(Copy, Clone, Eq, PartialEq)]
+    #[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
     pub struct MatrixIndex {
         pub row: usize,
         pub col: usize,
