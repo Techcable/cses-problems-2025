@@ -20,25 +20,26 @@ struct State<'a> {
     forbidden_positions: ChessBitMatrix,
     level: usize,
 }
-static GLOBAL_STEP_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-const STEP_COUNT_LIMIT: usize = 1000;
-fn take_step() {
-    if GLOBAL_STEP_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) > STEP_COUNT_LIMIT {
-        // std::process::abort();
-    }
+const MAY_DEBUG: bool = true;
+fn should_debug() -> bool {
+    use std::sync::OnceLock;
+    static SHOULD_DEBUG: OnceLock<bool> = OnceLock::new();
+    MAY_DEBUG
+        && *SHOULD_DEBUG
+            .get_or_init(|| std::env::var_os("NICKNINJA_DEBUG").is_some_and(|x| x == "1"))
 }
-
 fn count_sols(state: &State) -> u64 {
-    take_step();
-    let indent = "  ".repeat(state.level);
-    for line in format!(
-        "forbidden {} with card {}",
-        state.forbidden_positions,
-        state.forbidden_positions.cardinality()
-    )
-    .lines()
-    {
-        // println!("{indent}{line}");
+    if should_debug() {
+        let indent = "  ".repeat(state.level);
+        for line in format!(
+            "forbidden with card {card}\n{table}",
+            table = state.forbidden_positions,
+            card = state.forbidden_positions.cardinality()
+        )
+        .lines()
+        {
+            eprintln!("{indent}{line}");
+        }
     }
     if state.forbidden_positions.is_full() {
         return 0;
@@ -49,8 +50,10 @@ fn count_sols(state: &State) -> u64 {
         .forbidden_positions
         .zeros()
         .map(|free_pos| {
-            take_step();
-            // println!("{indent}free pos {free_pos:?}");
+            if should_debug() {
+                let indent = "  ".repeat(state.level);
+                eprintln!("{indent}free pos {free_pos:?}");
+            }
             debug_assert!(!state.forbidden_positions.get(free_pos.row, free_pos.col));
             let attacks = state.queen_attack_table[free_pos];
             // should attack itself
