@@ -519,13 +519,12 @@ mod test {
 
     const TWO_QUEENS1: &str = indoc!(
         "********
-        ********
-        ********
-        ********
-        ********
-        ********
-        ...*....
-        ........"
+         ********
+         ********
+         ********
+         ********
+         ********
+         ...*...."
     );
     #[test]
     fn two_queens1() {
@@ -533,5 +532,50 @@ mod test {
             count_sols(State::new(2).with_reserved(TWO_QUEENS1.parse().unwrap())),
             56
         );
+    }
+
+    const TEST1_INPUT_STR: &str = indoc!(
+        "........
+        ........
+        ........
+        ........
+        ........
+        ........
+        ........
+        ........"
+    );
+    #[test]
+    fn test1() {
+        assert_eq!(problem(TEST1_INPUT_STR.parse().unwrap()), 92);
+    }
+
+    const TEST2_INPUT_STR: &str = indoc!(
+        "........
+        ........
+        ........
+        ........
+        ........
+        ........
+        ........
+        ....*..."
+    );
+    #[test]
+    fn test2() {
+        assert_eq!(problem(TEST2_INPUT_STR.parse().unwrap()), 74);
+    }
+
+    const TEST3_INPUT_STR: &str = indoc!(
+        ".......*
+        ........
+        ..*.....
+        ........
+        ........
+        ........
+        ........
+        ......**"
+    );
+    #[test]
+    fn test3() {
+        assert_eq!(problem(TEST3_INPUT_STR.parse().unwrap()), 72);
     }
 }
