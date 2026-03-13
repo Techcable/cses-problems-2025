@@ -8,17 +8,35 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn problem(reserved: ChessBitMatrix) -> u64 {
-    let queen_attack_table = queen_attack_table();
-    count_sols(&State {
-        queen_attack_table: &queen_attack_table,
-        forbidden_positions: reserved,
-        level: 0,
-    })
+    count_sols(State::new(8).with_reserved(reserved))
 }
-struct State<'a> {
-    queen_attack_table: &'a QueenAttackTable,
+struct State {
+    queen_attack_table: &'static QueenAttackTable,
     forbidden_positions: ChessBitMatrix,
     level: usize,
+    current_num_queens: u32,
+    target_num_queens: u32,
+}
+impl State {
+    fn new(target_num_queens: u32) -> Self {
+        use std::sync::OnceLock;
+        static QUEEN_ATTACK_TABLE: OnceLock<QueenAttackTable> = OnceLock::new();
+        State {
+            queen_attack_table: QUEEN_ATTACK_TABLE.get_or_init(queen_attack_table),
+            forbidden_positions: ChessBitMatrix::new(),
+            level: 0,
+            current_num_queens: 0,
+            target_num_queens,
+        }
+    }
+    fn with_reserved(&mut self, reserved: ChessBitMatrix) -> &mut Self {
+        assert_eq!(
+            self.current_num_queens, 0,
+            "cannot reserve after started working"
+        );
+        self.forbidden_positions = reserved;
+        self
+    }
 }
 const MAY_DEBUG: bool = true;
 fn should_debug() -> bool {
@@ -32,7 +50,8 @@ fn count_sols(state: &State) -> u64 {
     if should_debug() {
         let indent = "  ".repeat(state.level);
         for line in format!(
-            "forbidden with card {card}\n{table}",
+            "forbidden with card {card}, queens {num_queens}\n{table}",
+            num_queens = state.current_num_queens,
             table = state.forbidden_positions,
             card = state.forbidden_positions.cardinality()
         )
@@ -41,10 +60,12 @@ fn count_sols(state: &State) -> u64 {
             eprintln!("{indent}{line}");
         }
     }
-    if state.forbidden_positions.is_full() {
-        return 0;
-    } else if state.forbidden_positions.cardinality() == 63 {
+    assert!(state.current_num_queens <= state.target_num_queens);
+    assert_eq!(state.queen_placements.len(), state.current_num_queens as usize);
+    if state.current_num_queens == state.target_num_queens {
         return 1;
+    } else if state.forbidden_positions.is_full() {
+        return 0;
     }
     state
         .forbidden_positions
@@ -66,6 +87,8 @@ fn count_sols(state: &State) -> u64 {
                 queen_attack_table: state.queen_attack_table,
                 forbidden_positions: new_forbidden_positions,
                 level: state.level + 1,
+                target_num_queens: state.target_num_queens,
+                current_num_queens: state.current_num_queens + 1,
             })
         })
         .sum::<u64>()
@@ -395,7 +418,7 @@ pub mod chess_matrix {
 
 #[cfg(test)]
 mod test {
-    use super::problem;
+    use super::{problem, State, count_sols};
     use indoc::indoc;
 
     const EXAMPLE_INPUT_STR: &str = indoc!(
@@ -412,5 +435,23 @@ mod test {
     #[test]
     fn example() {
         assert_eq!(problem(EXAMPLE_INPUT_STR.parse().unwrap()), 65);
+    }
+
+    const TWO_QUEENS1: &str = indoc!(
+        "********
+        ********
+        ********
+        ********
+        ********
+        ********
+        ...*....
+        ........"
+    );
+    #[test]
+    fn two_queens1() {
+        assert_eq!(
+            count_sols(State::new(2).with_reserved(TWO_QUEENS1.parse().unwrap())),
+            56
+        );
     }
 }
