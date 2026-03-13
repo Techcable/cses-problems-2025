@@ -1,4 +1,5 @@
 use chess_matrix::{ChessBitMatrix, ChessMatrix, MatrixIndex};
+use std::fmt::{Debug, Formatter};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
@@ -17,6 +18,23 @@ struct State {
     queen_placements: Vec<MatrixIndex>,
     current_num_queens: u32,
     target_num_queens: u32,
+    target_row: usize,
+}
+impl Debug for State {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // avoid printing `queen_attack_table`, as that would take huge amount of space
+        f.debug_struct("State")
+            .field(
+                "forbidden_positions",
+                &format_args!("{}", self.forbidden_positions),
+            )
+            .field("level", &self.level)
+            .field("queen_placements", &self.queen_placements)
+            .field("current_num_queens", &self.current_num_queens)
+            .field("target_num_queens", &self.target_num_queens)
+            .field("target_row", &self.target_row)
+            .finish_non_exhaustive()
+    }
 }
 impl State {
     fn new(target_num_queens: u32) -> Self {
@@ -29,6 +47,7 @@ impl State {
             level: 0,
             current_num_queens: 0,
             target_num_queens,
+            target_row: 0,
         }
     }
     fn with_reserved(&mut self, reserved: ChessBitMatrix) -> &mut Self {
@@ -48,7 +67,9 @@ impl State {
         let old_num_queens = self.current_num_queens;
         let attacks = self.queen_attack_table[queen_pos];
         let new_forbidden_positions = old_forbidden_positions | attacks;
+        let old_target_row = self.target_row;
         // verify arguments & old information is good
+        assert_eq!(queen_pos.row, old_target_row);
         assert!(self.current_num_queens < self.target_num_queens);
         assert!(
             !old_forbidden_positions.get(queen_pos.row, queen_pos.col),
@@ -62,6 +83,7 @@ impl State {
         );
         // update state before recursion
         self.current_num_queens += 1;
+        self.target_row += 1;
         self.queen_placements.push(queen_pos);
         self.forbidden_positions = new_forbidden_positions;
         // recurse
@@ -70,6 +92,10 @@ impl State {
         assert_eq!(
             std::mem::replace(&mut self.current_num_queens, old_num_queens),
             old_num_queens + 1
+        );
+        assert_eq!(
+            std::mem::replace(&mut self.target_row, old_target_row),
+            old_target_row + 1
         );
         assert_eq!(
             std::mem::replace(&mut self.forbidden_positions, old_forbidden_positions),
@@ -88,6 +114,10 @@ fn should_debug() -> bool {
             .get_or_init(|| std::env::var_os("NICKNINJA_DEBUG").is_some_and(|x| x == "1"))
 }
 fn count_sols(state: &mut State) -> u64 {
+    assert!(
+        state.target_num_queens as usize <= ChessBitMatrix::ROWS,
+        "cannot have more queens than rows"
+    );
     if should_debug() {
         let indent = "  ".repeat(state.level);
         for line in format!(
@@ -106,26 +136,37 @@ fn count_sols(state: &mut State) -> u64 {
         state.queen_placements.len(),
         state.current_num_queens as usize
     );
+    // TODO: I think this logic only works for target_num_queens=8?
     if state.current_num_queens == state.target_num_queens {
         if should_debug() {
             let indent = "  ".repeat(state.level);
             eprintln!("{indent}placement {:?}", state.queen_placements);
         }
+        assert_eq!(state.target_row, ChessBitMatrix::ROWS);
         return 1;
     } else if state.forbidden_positions.is_full() {
         return 0;
     }
-    state
-        .forbidden_positions
-        .zeros()
-        .map(|free_pos| {
-            if should_debug() {
-                let indent = "  ".repeat(state.level);
-                eprintln!("{indent}free pos {free_pos:?}");
+    assert!(
+        state.target_row < ChessBitMatrix::ROWS,
+        "board should either be filled or have another row to place on: {state:#?}"
+    );
+    // If the whole row is forbidden and we are trying to place n=8 queens,
+    // then this sums over nothing computes the correct result (0)
+    // TODO: Does not compute correctly in the case that n<8
+    (0usize..8)
+        .filter_map(|col| {
+            if state.forbidden_positions.get(state.target_row, col) {
+                return None;
             }
-            state.with_additional_queen(free_pos, count_sols)
+            let queen_pos = MatrixIndex {
+                row: state.target_row,
+                col,
+            };
+            // add the new queen and recurse
+            Some(state.with_additional_queen(queen_pos, count_sols))
         })
-        .sum::<u64>()
+        .sum()
 }
 
 type QueenAttackTable = ChessMatrix<ChessBitMatrix>;
