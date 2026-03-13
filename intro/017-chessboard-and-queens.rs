@@ -14,6 +14,7 @@ struct State {
     queen_attack_table: &'static QueenAttackTable,
     forbidden_positions: ChessBitMatrix,
     level: usize,
+    queen_placements: Vec<MatrixIndex>,
     current_num_queens: u32,
     target_num_queens: u32,
 }
@@ -24,6 +25,7 @@ impl State {
         State {
             queen_attack_table: QUEEN_ATTACK_TABLE.get_or_init(queen_attack_table),
             forbidden_positions: ChessBitMatrix::new(),
+            queen_placements: Vec::with_capacity(target_num_queens as usize),
             level: 0,
             current_num_queens: 0,
             target_num_queens,
@@ -37,6 +39,21 @@ impl State {
         self.forbidden_positions = reserved;
         self
     }
+    fn with_additional_queen<R>(
+        &mut self,
+        queen_pos: MatrixIndex,
+        func: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        assert!(self.current_num_queens < self.target_num_queens);
+        self.current_num_queens += 1;
+        let new_num_queens = self.current_num_queens;
+        self.queen_placements.push(queen_pos);
+        let res = func(self);
+        assert_eq!(self.current_num_queens, new_num_queens);
+        self.current_num_queens -= 1;
+        assert_eq!(self.queen_placements.pop(), Some(queen_pos));
+        res
+    }
 }
 const MAY_DEBUG: bool = true;
 fn should_debug() -> bool {
@@ -46,7 +63,7 @@ fn should_debug() -> bool {
         && *SHOULD_DEBUG
             .get_or_init(|| std::env::var_os("NICKNINJA_DEBUG").is_some_and(|x| x == "1"))
 }
-fn count_sols(state: &State) -> u64 {
+fn count_sols(state: &mut State) -> u64 {
     if should_debug() {
         let indent = "  ".repeat(state.level);
         for line in format!(
@@ -61,8 +78,15 @@ fn count_sols(state: &State) -> u64 {
         }
     }
     assert!(state.current_num_queens <= state.target_num_queens);
-    assert_eq!(state.queen_placements.len(), state.current_num_queens as usize);
+    assert_eq!(
+        state.queen_placements.len(),
+        state.current_num_queens as usize
+    );
     if state.current_num_queens == state.target_num_queens {
+        if should_debug() {
+            let indent = "  ".repeat(state.level);
+            eprintln!("{indent}placement {:?}", state.queen_placements);
+        }
         return 1;
     } else if state.forbidden_positions.is_full() {
         return 0;
@@ -83,13 +107,7 @@ fn count_sols(state: &State) -> u64 {
             debug_assert!(
                 new_forbidden_positions.cardinality() > state.forbidden_positions.cardinality()
             );
-            count_sols(&State {
-                queen_attack_table: state.queen_attack_table,
-                forbidden_positions: new_forbidden_positions,
-                level: state.level + 1,
-                target_num_queens: state.target_num_queens,
-                current_num_queens: state.current_num_queens + 1,
-            })
+            state.with_additional_queen(free_pos, count_sols)
         })
         .sum::<u64>()
 }
@@ -418,7 +436,7 @@ pub mod chess_matrix {
 
 #[cfg(test)]
 mod test {
-    use super::{problem, State, count_sols};
+    use super::{count_sols, problem, State};
     use indoc::indoc;
 
     const EXAMPLE_INPUT_STR: &str = indoc!(
