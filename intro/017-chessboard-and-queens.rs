@@ -9,15 +9,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn problem(reserved: ChessBitMatrix) -> u64 {
-    count_sols(State::new(8).with_reserved(reserved))
+    count_sols(State::new().with_reserved(reserved))
 }
+const TARGET_NUM_QUEENS: u32 = 8;
 struct State {
     queen_attack_table: &'static QueenAttackTable,
     forbidden_positions: ChessBitMatrix,
     level: usize,
     queen_placements: Vec<MatrixIndex>,
     current_num_queens: u32,
-    target_num_queens: u32,
     target_row: usize,
 }
 impl Debug for State {
@@ -31,22 +31,20 @@ impl Debug for State {
             .field("level", &self.level)
             .field("queen_placements", &self.queen_placements)
             .field("current_num_queens", &self.current_num_queens)
-            .field("target_num_queens", &self.target_num_queens)
             .field("target_row", &self.target_row)
             .finish_non_exhaustive()
     }
 }
 impl State {
-    fn new(target_num_queens: u32) -> Self {
+    fn new() -> Self {
         use std::sync::OnceLock;
         static QUEEN_ATTACK_TABLE: OnceLock<QueenAttackTable> = OnceLock::new();
         State {
             queen_attack_table: QUEEN_ATTACK_TABLE.get_or_init(queen_attack_table),
             forbidden_positions: ChessBitMatrix::new(),
-            queen_placements: Vec::with_capacity(target_num_queens as usize),
+            queen_placements: Vec::with_capacity(TARGET_NUM_QUEENS as usize),
             level: 0,
             current_num_queens: 0,
-            target_num_queens,
             target_row: 0,
         }
     }
@@ -70,7 +68,7 @@ impl State {
         let old_target_row = self.target_row;
         // verify arguments & old information is good
         assert_eq!(queen_pos.row, old_target_row);
-        assert!(self.current_num_queens < self.target_num_queens);
+        assert!(self.current_num_queens < TARGET_NUM_QUEENS);
         assert!(
             !old_forbidden_positions.get(queen_pos.row, queen_pos.col),
             "position {queen_pos:?} is forbidden"
@@ -105,7 +103,7 @@ impl State {
         res
     }
 }
-const MAY_DEBUG: bool = true;
+const MAY_DEBUG: bool = false;
 fn should_debug() -> bool {
     use std::sync::OnceLock;
     static SHOULD_DEBUG: OnceLock<bool> = OnceLock::new();
@@ -114,9 +112,10 @@ fn should_debug() -> bool {
             .get_or_init(|| std::env::var_os("NICKNINJA_DEBUG").is_some_and(|x| x == "1"))
 }
 fn count_sols(state: &mut State) -> u64 {
-    assert!(
-        state.target_num_queens as usize <= ChessBitMatrix::ROWS,
-        "cannot have more queens than rows"
+    assert_eq!(
+        TARGET_NUM_QUEENS as usize,
+        ChessBitMatrix::ROWS,
+        "assumption violated"
     );
     if should_debug() {
         let indent = "  ".repeat(state.level);
@@ -131,13 +130,12 @@ fn count_sols(state: &mut State) -> u64 {
             eprintln!("{indent}{line}");
         }
     }
-    assert!(state.current_num_queens <= state.target_num_queens);
+    assert!(state.current_num_queens <= TARGET_NUM_QUEENS);
     assert_eq!(
         state.queen_placements.len(),
         state.current_num_queens as usize
     );
-    // TODO: I think this logic only works for target_num_queens=8?
-    if state.current_num_queens == state.target_num_queens {
+    if state.current_num_queens == TARGET_NUM_QUEENS {
         if should_debug() {
             let indent = "  ".repeat(state.level);
             eprintln!("{indent}placement {:?}", state.queen_placements);
@@ -151,9 +149,8 @@ fn count_sols(state: &mut State) -> u64 {
         state.target_row < ChessBitMatrix::ROWS,
         "board should either be filled or have another row to place on: {state:#?}"
     );
-    // If the whole row is forbidden and we are trying to place n=8 queens,
-    // then this sums over nothing computes the correct result (0)
-    // TODO: Does not compute correctly in the case that n<8
+    // If the whole row is forbidden, then we cannot place n=8 queens.
+    // In that case, this sums over nothing computes the correct result (0)
     (0usize..8)
         .filter_map(|col| {
             if state.forbidden_positions.get(state.target_row, col) {
@@ -498,7 +495,7 @@ pub mod chess_matrix {
 
 #[cfg(test)]
 mod test {
-    use super::{count_sols, problem, State};
+    use super::problem;
     use indoc::indoc;
 
     const EXAMPLE_INPUT_STR: &str = indoc!(
@@ -515,23 +512,6 @@ mod test {
     #[test]
     fn example() {
         assert_eq!(problem(EXAMPLE_INPUT_STR.parse().unwrap()), 65);
-    }
-
-    const TWO_QUEENS1: &str = indoc!(
-        "********
-         ********
-         ********
-         ********
-         ********
-         ********
-         ...*...."
-    );
-    #[test]
-    fn two_queens1() {
-        assert_eq!(
-            count_sols(State::new(2).with_reserved(TWO_QUEENS1.parse().unwrap())),
-            56
-        );
     }
 
     const TEST1_INPUT_STR: &str = indoc!(
