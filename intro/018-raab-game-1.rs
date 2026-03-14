@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::Display;
 use std::str::FromStr;
 
@@ -8,25 +9,145 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let games = lines
         .map(Game::from_str)
         .collect::<Result<Vec<Game>, _>>()?;
+    assert_eq!(num_inputs, games.len());
+    for game in games {
+        match solve(game) {
+            None => println!("NO"),
+            Some(Solution { left, right }) => {
+                println!("YES");
+                println!("{}", join(&left, " "));
+                println!("{}", join(&right, " "));
+            }
+        }
+    }
+    Ok(())
+}
+fn join<T: Display>(x: impl IntoIterator<Item = T>, sep: &str) -> String {
+    let mut res = String::new();
+    let mut first = false;
+    for item in x {
+        if first {
+            res.push_str(sep);
+        }
+        first = false;
+        use std::fmt::Write;
+        write!(&mut res, "{item}").unwrap();
+    }
+    res
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Solution {
+    pub left: Vec<u32>,
+    pub right: Vec<u32>,
+}
+
+pub fn solve(game: Game) -> Option<Solution> {
+    assert!(game.num_cards > 0);
+    let ties = game.num_ties().ok()?;
+    // there is a pattern the outputs seem to follow:
+    // [player 1 loses] [player 2 loses] [ties]
+    // as long as the wins add up after ties,
+    // we should be able to handle any game
+    let non_tied = game.num_cards - ties;
+    if game.total_wins() != non_tied {
+        return None;
+    }
+    let mut player1 = Vec::new();
+    let mut player2 = Vec::new();
+    let [a, b] = game.scores;
+    // we need to come up with three sequences of pairs x, y, z s.t.
+    // x[i].0 < x[i].1
+    // y[i].0 > y[i].1
+    // z[i].0 == z[i].0
+    // with |x|=b, |y|=a, |z|=n-a-b
+    // picking z is easy as we just take the highest number
+    // for x1 we pick the lowest numbers 1..=b, for x2 we pick (a + 1)..=a+b
+    // for y2 we pick the higher numbers (b+1)..=(a+b), for y2 we pick (b+1)..=(a+b)
+    for x in 1..=b {
+        player1.push(x);
+        player2.push(a + x);
+    }
+    for y in 1..=a {
+        player1.push(b + y);
+        player2.push(y);
+    }
+    assert_eq!(player1.len(), non_tied as usize);
+    assert_eq!(player2.len(), non_tied as usize);
+    for offset in 1..=ties {
+        player1.push(non_tied + offset);
+        player2.push(non_tied + offset);
+    }
+    assert_eq!(player1.len(), game.num_cards as usize);
+    assert_eq!(player2.len(), game.num_cards as usize);
+    let sol = Solution {
+        left: player1,
+        right: player2,
+    };
+    if cfg!(debug_assertions) {
+        verify_solution(game, &sol);
+    }
+    Some(sol)
+}
+fn verify_solution(game: Game, sol: &Solution) {
+    let ties = game.num_ties().unwrap();
+    let mut seen1 = vec![false; game.num_cards as usize];
+    let mut seen2 = vec![false; game.num_cards as usize];
+    assert_eq!(sol.left.len(), game.num_cards as usize);
+    assert_eq!(sol.right.len(), game.num_cards as usize);
+    let mut win_left = 0u32;
+    let mut win_right = 0u32;
+    for (&left, &right) in sol.left.iter().zip(&sol.right) {
+        assert!(
+            !std::mem::replace(&mut seen1[left as usize - 1], true),
+            "duplicate {left} in left {sol:?} for {game:?}"
+        );
+        assert!(
+            !std::mem::replace(&mut seen2[right as usize - 1], true),
+            "duplicate {right} in right {sol:?} for {game:?}"
+        );
+        match left.cmp(&right) {
+            Ordering::Less => {
+                win_right += 1;
+            }
+            Ordering::Equal => {}
+            Ordering::Greater => {
+                win_left += 1;
+            }
+        }
+    }
+    let actual_ties = game.num_cards - win_left - win_right;
+    assert_eq!(
+        (win_left, win_right, actual_ties),
+        (game.scores[0], game.scores[1], ties),
+        "{sol:?} for {game:?}"
+    );
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Game {
-    pub num_cards: usize,
-    pub scores: [usize; 2],
+    pub num_cards: u32,
+    pub scores: [u32; 2],
 }
 impl Game {
+    pub fn new(n: u32, a: u32, b: u32) -> Game {
+        Game {
+            num_cards: n,
+            scores: [a, b],
+        }
+    }
     #[inline]
-    pub fn total_wins(&self) -> usize {
+    pub fn total_wins(&self) -> u32 {
         self.scores.iter().copied().sum()
     }
     #[inline]
-    pub fn num_ties(&self) -> Result<usize, TooManyWinsError> {
+    pub fn num_ties(&self) -> Result<u32, TooManyWinsError> {
         self.num_cards
             .checked_sub(self.total_wins())
             .ok_or(TooManyWinsError)
     }
 }
-/// Indicates that [Game::num_ties()] cannot be computed because there are too many wins.
+/// Indicates that [`Game::num_ties`] cannot be computed because there are too many wins.
 #[derive(Debug, Clone, Copy)]
 pub struct TooManyWinsError;
 impl FromStr for Game {
@@ -35,7 +156,7 @@ impl FromStr for Game {
         let entries = s
             .split_whitespace()
             .map(|x| {
-                x.parse::<usize>().map_err(|invalid_int| {
+                x.parse::<u32>().map_err(|invalid_int| {
                     GameParseError(format!("line has invalid integer, {invalid_int}"))
                 })
             })
@@ -53,7 +174,7 @@ impl FromStr for Game {
     }
 }
 #[derive(Debug)]
-struct GameParseError(String);
+pub struct GameParseError(String);
 impl Display for GameParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "failed to parse game: {}", self.0)
@@ -63,21 +184,33 @@ impl std::error::Error for GameParseError {}
 
 #[cfg(test)]
 mod test {
-    use super::Game;
+    use super::{solve, Game, Solution};
 
-    impl Game {
-        pub fn new(n: usize, a: usize, b: usize) -> Game {
-            Game {
-                num_cards: n,
-                scores: [a, b],
-            }
-        }
-    }
+    #[track_caller]
     fn verify_no_sol(game: Game) {
-        todo!()
+        assert_eq!(solve(game), None);
     }
-    fn verify_sol(game: Game, x: &[usize], y: &[usize]) {
-        todo!()
+    #[track_caller]
+    fn verify_sol(game: Game, x: &[u32], y: &[u32]) {
+        let sol = solve(game);
+        eprintln!("{sol:?} for {game:?}");
+        assert_eq!(
+            sol,
+            Some(Solution {
+                left: x.to_vec(),
+                right: y.to_vec(),
+            })
+        );
+    }
+
+    /// Test the official example.
+    #[test]
+    fn example() {
+        verify_sol(Game::new(4, 1, 2), &[1, 4, 3, 2], &[2, 1, 3, 4]);
+        verify_no_sol(Game::new(2, 0, 1));
+        verify_sol(Game::new(3, 0, 0), &[1, 2, 3], &[1, 2, 3]);
+        verify_sol(Game::new(2, 1, 1), &[1, 2], &[2, 1]);
+        verify_no_sol(Game::new(4, 4, 1));
     }
 
     /// Test a subset of the full test 1
