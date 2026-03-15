@@ -9,10 +9,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let games = lines
         .map(Game::from_str)
         .collect::<Result<Vec<Game>, _>>()?;
-    assert!(
-        !cfg!(debug_assertions),
-        "want to see if CSES enables assertions"
-    );
     assert_eq!(num_inputs, games.len());
     for game in games {
         match solve(game) {

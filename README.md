@@ -13,6 +13,8 @@ See this "howto" guide for various details: <https://cses.fi/howto/>
 ## Rust Environment
 CSES uses the relatively modern Rust 1.75, as described in their [howto](https://cses.fi/howto) guide.
 
+Debug assertions are disabled and optimizations are on, as if running with `--release`.
+
 The only included package is `rand = "0.8.4"`.
 To ensure compatibility with Rust 1.75, we run `cargo check` on that version.
 
