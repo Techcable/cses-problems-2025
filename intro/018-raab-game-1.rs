@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::fmt::{Display, Write};
+use std::fmt::{self, Debug, Display, Write};
 use std::io::Write as IoWrite;
 use std::str::FromStr;
 
@@ -16,12 +16,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     for game in games {
         match solve(game) {
             None => println!("NO"),
-            Some(Solution { left, right }) => {
+            Some(sol) => {
                 buffer.clear();
                 buffer.push_str("YES\n");
-                join_into(&left, " ", &mut buffer);
+                join_into(sol.left(), " ", &mut buffer);
                 buffer.push('\n');
-                join_into(&right, " ", &mut buffer);
+                join_into(sol.right(), " ", &mut buffer);
                 stdout.write_all(buffer.as_bytes())?;
             }
         }
@@ -30,13 +30,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 fn join_into<T: Display>(x: impl IntoIterator<Item = T>, sep: &str, res: &mut String) {
     let mut first = true;
-    for item in x {
+    // use for_each to hopefully unroll std::iter::chain into its constituent parts
+    x.into_iter().for_each(|item| {
         if !first {
             res.push_str(sep);
         }
         first = false;
         write!(res, "{item}").unwrap(); // not possible for str
-    }
+    });
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -52,38 +53,75 @@ impl From<(&[u32], &[u32])> for Solution {
         }
     }
 }
-
-pub fn solve(game: Game) -> Option<Solution> {
-    assert!(game.n > 0);
-    let ties = game.num_ties().ok()?;
-    /// Checks that all elements of `left` compare as `expected_ord` against the corresponding elements of `right`
-    #[track_caller] // error messages are descriptive enough that this is helpful
-    fn verify_comparison(expected_ord: Ordering, expected_len: usize, left: &[u32], right: &[u32]) {
-        let ctx = || format!("\nleft = {left:?}\nright = {right:?}");
-        assert_eq!(
-            left.len(),
-            right.len(),
-            "mismatched lengths for left, right (expected_len = {expected_len}){ctx}",
-            ctx = ctx()
-        );
-        assert_eq!(
-            left.len(),
-            expected_len,
-            "expected length {expected_len} != left.len = right.len{ctx}",
-            ctx = ctx()
-        );
-        if !cfg!(debug_assertions) {
-            return;
-        }
-        for (a, b) in left.iter().copied().zip(right.iter().copied()) {
-            assert_eq!(
-                a.cmp(&b),
-                expected_ord,
-                "expected {a} {expected_ord:?} {b}{ctx}",
-                ctx = ctx()
-            );
+impl From<FastSolution> for Solution {
+    fn from(fast: FastSolution) -> Self {
+        Solution {
+            left: fast.left().collect(),
+            right: fast.right().collect(),
         }
     }
+}
+
+/// A special-case of [Solution], avoiding allocation.
+///
+/// # Reasoning
+/// We need to come up with three sequences of pairs x, y, z s.t.
+/// `x[i].0 < x[i].1`
+/// `y[i].0 > y[i].1`
+/// `z[i].0 == z[i].0`
+/// with |x|=b, |y|=a, |z|=n-a-b=ties
+/// picking z is easy as we just take the highest `ties` numbers
+/// for x1 we pick the lowest numbers `1..=b`, for x2 we pick (a + 1)..=a+b
+/// for y2 we pick the higher numbers (b+1)..=(a+b), for y2 we pick (b+1)..=(a+b)
+///
+/// The result is that the `left` is always `1..=n`,
+/// while right is a concatenation of `(a+1)..=a+b`, `(a+1)..=a+b`
+#[derive(Clone)]
+pub struct FastSolution {
+    known_valid_game: Game,
+}
+impl FastSolution {
+    #[inline]
+    pub fn left(&self) -> impl Iterator<Item = u32> {
+        1..=self.known_valid_game.n
+    }
+    #[inline]
+    pub fn right(&self) -> impl Iterator<Item = u32> {
+        let Game { n, a, b: _ } = self.known_valid_game;
+        // use strict arithmetic for all calculations in the hope
+        // this helps the optimizer with the inner loop
+        let total_wins = self.known_valid_game.total_wins();
+        #[inline]
+        #[track_caller]
+        fn add1(x: u32) -> u32 {
+            // polyfill for x.strict_add(1)
+            x.checked_add(1).expect("arith overflow")
+        }
+        #[inline]
+        fn chain3<T>(iters: [impl Iterator<Item = T>; 3]) -> impl Iterator<Item = T> {
+            let [a, b, c] = iters;
+            a.chain(b.chain(c))
+        }
+        chain3([
+            add1(a)..=total_wins, // (a+1)..=(a+b)
+            (1..=a),
+            add1(total_wins)..=n, // (a+b)..=n
+        ])
+    }
+}
+impl Debug for FastSolution {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let sol = Solution::from(self.clone());
+        f.debug_struct("FastSolution")
+            .field("left", &sol.left)
+            .field("right", &sol.right)
+            .finish()
+    }
+}
+
+pub fn solve(game: Game) -> Option<FastSolution> {
+    assert!(game.n > 0);
+    let ties = game.num_ties().ok()?;
     // there is a pattern the outputs seem to follow:
     // [player 1 loses] [player 2 loses] [ties]
     // as long as the wins add up after ties,
@@ -99,51 +137,11 @@ pub fn solve(game: Game) -> Option<Solution> {
     if matches!((a, b), (0, 1..) | (1.., 0)) {
         return None;
     }
-    let mut player1 = Vec::with_capacity(game.n as usize);
-    let mut player2 = Vec::with_capacity(game.n as usize);
-    // we need to come up with three sequences of pairs x, y, z s.t.
-    // x[i].0 < x[i].1
-    // y[i].0 > y[i].1
-    // z[i].0 == z[i].0
-    // with |x|=b, |y|=a, |z|=n-a-b=ties
-    // picking z is easy as we just take the highest `ties` numbers
-    // for x1 we pick the lowest numbers 1..=b, for x2 we pick (a + 1)..=a+b
-    // for y2 we pick the higher numbers (b+1)..=(a+b), for y2 we pick (b+1)..=(a+b)
-    for x in 1..=b {
-        player1.push(x);
-        player2.push(a + x);
-    }
-    verify_comparison(Ordering::Less, b as usize, &player1, &player2);
-    for y in 1..=a {
-        player1.push(b + y);
-        player2.push(y);
-    }
-    verify_comparison(
-        Ordering::Greater,
-        a as usize,
-        &player1[b as usize..],
-        &player2[b as usize..],
-    );
-    assert_eq!(player1.len(), non_tied as usize);
-    assert_eq!(player2.len(), non_tied as usize);
-    for offset in 1..=ties {
-        player1.push(non_tied + offset);
-        player2.push(non_tied + offset);
-    }
-    verify_comparison(
-        Ordering::Equal,
-        ties as usize,
-        &player1[non_tied as usize..],
-        &player2[non_tied as usize..],
-    );
-    assert_eq!(player1.len(), game.n as usize);
-    assert_eq!(player2.len(), game.n as usize);
-    let sol = Solution {
-        left: player1,
-        right: player2,
+    let sol = FastSolution {
+        known_valid_game: game,
     };
     if cfg!(debug_assertions) {
-        verify_solution(game, &sol);
+        verify_solution(game, &sol.clone().into());
     }
     Some(sol)
 }
@@ -194,9 +192,10 @@ impl Game {
     pub fn new(n: u32, a: u32, b: u32) -> Game {
         Game { n, a, b }
     }
+    #[track_caller]
     #[inline]
     pub fn total_wins(&self) -> u32 {
-        self.a + self.b
+        self.a.checked_add(self.b).expect("arith overflow")
     }
     #[inline]
     pub fn num_ties(&self) -> Result<u32, TooManyWinsError> {
@@ -248,7 +247,7 @@ mod test {
 
     #[track_caller]
     fn verify_no_sol(game: Game) {
-        assert_eq!(solve(game), None);
+        assert_eq!(solve(game).map(Solution::from), None);
     }
     #[track_caller]
     fn verify_sol(game: Game, x: &[u32], y: &[u32]) {
@@ -262,7 +261,7 @@ mod test {
             .map(Solution::from)
             .collect_array::<N>()
             .unwrap();
-        let actual_sol = solve(game);
+        let actual_sol = solve(game).map(Solution::from);
         assert!(
             actual_sol
                 .as_ref()
