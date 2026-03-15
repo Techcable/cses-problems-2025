@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
-use std::fmt::Display;
+use std::fmt::{Display, Write};
+use std::io::Write as IoWrite;
 use std::str::FromStr;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -10,30 +11,32 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(Game::from_str)
         .collect::<Result<Vec<Game>, _>>()?;
     assert_eq!(num_inputs, games.len());
+    let mut stdout = std::io::stdout();
+    let mut buffer = String::new();
     for game in games {
         match solve(game) {
             None => println!("NO"),
             Some(Solution { left, right }) => {
-                println!("YES");
-                println!("{}", join(&left, " "));
-                println!("{}", join(&right, " "));
+                buffer.clear();
+                buffer.push_str("YES\n");
+                join_into(&left, " ", &mut buffer);
+                buffer.push('\n');
+                join_into(&right, " ", &mut buffer);
+                stdout.write_all(buffer.as_bytes())?;
             }
         }
     }
     Ok(())
 }
-fn join<T: Display>(x: impl IntoIterator<Item = T>, sep: &str) -> String {
-    let mut res = String::new();
+fn join_into<T: Display>(x: impl IntoIterator<Item = T>, sep: &str, res: &mut String) {
     let mut first = true;
     for item in x {
         if !first {
             res.push_str(sep);
         }
         first = false;
-        use std::fmt::Write;
-        write!(&mut res, "{item}").unwrap();
+        write!(res, "{item}").unwrap(); // not possible for str
     }
-    res
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
