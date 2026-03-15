@@ -11,7 +11,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(Game::from_str)
         .collect::<Result<Vec<Game>, _>>()?;
     assert_eq!(num_inputs, games.len());
-    let mut stdout = std::io::stdout();
+    let mut stdout = std::io::BufWriter::new(std::io::stdout());
     let mut buffer = String::new();
     for game in games {
         match solve(game) {
