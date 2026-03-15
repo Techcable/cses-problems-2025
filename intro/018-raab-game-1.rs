@@ -9,7 +9,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let games = lines
         .map(Game::from_str)
         .collect::<Result<Vec<Game>, _>>()?;
-    assert!(!cfg!(debug_assertions), "want to see if CSES enables assertions");
+    assert!(
+        !cfg!(debug_assertions),
+        "want to see if CSES enables assertions"
+    );
     assert_eq!(num_inputs, games.len());
     for game in games {
         match solve(game) {
@@ -54,15 +57,9 @@ impl From<(&[u32], &[u32])> for Solution {
 pub fn solve(game: Game) -> Option<Solution> {
     assert!(game.n > 0);
     let ties = game.num_ties().ok()?;
-
     /// Checks that all elements of `left` compare as `expected_ord` against the corresponding elements of `right`
     #[track_caller] // error messages are descriptive enough that this is helpful
-    fn check_comparison(
-        expected_ord: Ordering,
-        expected_len: usize,
-        left: &[u32],
-        right: &[u32],
-    ) -> bool {
+    fn verify_comparison(expected_ord: Ordering, expected_len: usize, left: &[u32], right: &[u32]) {
         let ctx = || format!("\nleft = {left:?}\nright = {right:?}");
         assert_eq!(
             left.len(),
@@ -76,12 +73,17 @@ pub fn solve(game: Game) -> Option<Solution> {
             "expected length {expected_len} != left.len = right.len{ctx}",
             ctx = ctx()
         );
-        for (a, b) in left.iter().copied().zip(right.iter().copied()) {
-            if a.cmp(&b) != expected_ord {
-                return false;
-            }
+        if !cfg!(debug_assertions) {
+            return;
         }
-        true
+        for (a, b) in left.iter().copied().zip(right.iter().copied()) {
+            assert_eq!(
+                a.cmp(&b),
+                expected_ord,
+                "expected {a} {expected_ord:?} {b}{ctx}",
+                ctx = ctx()
+            );
+        }
     }
     // there is a pattern the outputs seem to follow:
     // [player 1 loses] [player 2 loses] [ties]
@@ -92,6 +94,12 @@ pub fn solve(game: Game) -> Option<Solution> {
         return None;
     }
     let Game { a, b, .. } = game;
+    // as described in the official analysis page,
+    // if exactly one player has zero wins, then no solution is possible.
+    // This is an improvement over the previous submission doing an O(n) check for validity
+    if matches!((a, b), (0, 1..) | (1.., 0)) {
+        return None;
+    }
     let mut player1 = Vec::with_capacity(game.n as usize);
     let mut player2 = Vec::with_capacity(game.n as usize);
     // we need to come up with three sequences of pairs x, y, z s.t.
@@ -106,35 +114,29 @@ pub fn solve(game: Game) -> Option<Solution> {
         player1.push(x);
         player2.push(a + x);
     }
-    if !check_comparison(Ordering::Less, b as usize, &player1, &player2) {
-        return None;
-    }
+    verify_comparison(Ordering::Less, b as usize, &player1, &player2);
     for y in 1..=a {
         player1.push(b + y);
         player2.push(y);
     }
-    if !check_comparison(
+    verify_comparison(
         Ordering::Greater,
         a as usize,
         &player1[b as usize..],
         &player2[b as usize..],
-    ) {
-        return None;
-    }
+    );
     assert_eq!(player1.len(), non_tied as usize);
     assert_eq!(player2.len(), non_tied as usize);
     for offset in 1..=ties {
         player1.push(non_tied + offset);
         player2.push(non_tied + offset);
     }
-    if !check_comparison(
+    verify_comparison(
         Ordering::Equal,
         ties as usize,
         &player1[non_tied as usize..],
         &player2[non_tied as usize..],
-    ) {
-        return None;
-    }
+    );
     assert_eq!(player1.len(), game.n as usize);
     assert_eq!(player2.len(), game.n as usize);
     let sol = Solution {
