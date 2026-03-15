@@ -43,19 +43,19 @@ pub struct Solution {
 }
 
 pub fn solve(game: Game) -> Option<Solution> {
-    assert!(game.num_cards > 0);
+    assert!(game.n > 0);
     let ties = game.num_ties().ok()?;
     // there is a pattern the outputs seem to follow:
     // [player 1 loses] [player 2 loses] [ties]
     // as long as the wins add up after ties,
     // we should be able to handle any game
-    let non_tied = game.num_cards - ties;
+    let non_tied = game.n - ties;
     if game.total_wins() != non_tied {
         return None;
     }
     let mut player1 = Vec::new();
     let mut player2 = Vec::new();
-    let [a, b] = game.scores;
+    let Game { a, b, .. } = game;
     // we need to come up with three sequences of pairs x, y, z s.t.
     // x[i].0 < x[i].1
     // y[i].0 > y[i].1
@@ -78,8 +78,8 @@ pub fn solve(game: Game) -> Option<Solution> {
         player1.push(non_tied + offset);
         player2.push(non_tied + offset);
     }
-    assert_eq!(player1.len(), game.num_cards as usize);
-    assert_eq!(player2.len(), game.num_cards as usize);
+    assert_eq!(player1.len(), game.n as usize);
+    assert_eq!(player2.len(), game.n as usize);
     let sol = Solution {
         left: player1,
         right: player2,
@@ -91,10 +91,10 @@ pub fn solve(game: Game) -> Option<Solution> {
 }
 fn verify_solution(game: Game, sol: &Solution) {
     let ties = game.num_ties().unwrap();
-    let mut seen1 = vec![false; game.num_cards as usize];
-    let mut seen2 = vec![false; game.num_cards as usize];
-    assert_eq!(sol.left.len(), game.num_cards as usize);
-    assert_eq!(sol.right.len(), game.num_cards as usize);
+    let mut seen1 = vec![false; game.n as usize];
+    let mut seen2 = vec![false; game.n as usize];
+    assert_eq!(sol.left.len(), game.n as usize);
+    assert_eq!(sol.right.len(), game.n as usize);
     let mut win_left = 0u32;
     let mut win_right = 0u32;
     for (&left, &right) in sol.left.iter().zip(&sol.right) {
@@ -116,33 +116,33 @@ fn verify_solution(game: Game, sol: &Solution) {
             }
         }
     }
-    let actual_ties = game.num_cards - win_left - win_right;
+    let actual_ties = game.n - win_left - win_right;
     assert_eq!(
         (win_left, win_right, actual_ties),
-        (game.scores[0], game.scores[1], ties),
+        (game.a, game.b, ties),
         "{sol:?} for {game:?}"
     );
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Game {
-    pub num_cards: u32,
-    pub scores: [u32; 2],
+    /// Number of cards in the game
+    pub n: u32,
+    pub a: u32,
+    pub b: u32,
 }
 impl Game {
+    #[inline]
     pub fn new(n: u32, a: u32, b: u32) -> Game {
-        Game {
-            num_cards: n,
-            scores: [a, b],
-        }
+        Game { n, a, b }
     }
     #[inline]
     pub fn total_wins(&self) -> u32 {
-        self.scores.iter().copied().sum()
+        self.a + self.b
     }
     #[inline]
     pub fn num_ties(&self) -> Result<u32, TooManyWinsError> {
-        self.num_cards
+        self.n
             .checked_sub(self.total_wins())
             .ok_or(TooManyWinsError)
     }
@@ -168,8 +168,9 @@ impl FromStr for Game {
             )));
         }
         Ok(Game {
-            num_cards: entries[0],
-            scores: [entries[1], entries[2]],
+            n: entries[0],
+            a: entries[1],
+            b: entries[2],
         })
     }
 }
