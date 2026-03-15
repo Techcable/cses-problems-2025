@@ -11,17 +11,19 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(Game::from_str)
         .collect::<Result<Vec<Game>, _>>()?;
     assert_eq!(num_inputs, games.len());
-    let mut stdout = std::io::BufWriter::new(std::io::stdout());
+    let stdout = std::io::stdout();
+    let mut stdout = std::io::BufWriter::new(stdout.lock());
     let mut buffer = String::new();
     for game in games {
         match solve(game) {
-            None => println!("NO"),
+            None => writeln!(stdout, "NO")?,
             Some(sol) => {
                 buffer.clear();
                 buffer.push_str("YES\n");
                 join_into(sol.left(), " ", &mut buffer);
                 buffer.push('\n');
                 join_into(sol.right(), " ", &mut buffer);
+                buffer.push('\n');
                 stdout.write_all(buffer.as_bytes())?;
             }
         }
