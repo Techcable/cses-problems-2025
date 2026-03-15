@@ -45,6 +45,35 @@ pub struct Solution {
 pub fn solve(game: Game) -> Option<Solution> {
     assert!(game.n > 0);
     let ties = game.num_ties().ok()?;
+
+    /// Verifies that all elements of `left` compare as `expected_ord` against the corresponding elements of `right`
+    #[track_caller] // error messages are descriptive enough that this is helpful
+    fn assert_comparison(expected_ord: Ordering, expected_len: usize, left: &[u32], right: &[u32]) {
+        let ctx = || format!("\nleft = {left:?}\nright = {right:?}");
+        assert_eq!(
+            left.len(),
+            right.len(),
+            "mismatched lengths for left, right (expected_len = {expected_len}){ctx}",
+            ctx = ctx()
+        );
+        assert_eq!(
+            left.len(),
+            expected_len,
+            "expected length {expected_len} != left.len = right.len{ctx}",
+            ctx = ctx()
+        );
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        for (idx, (a, b)) in left.iter().copied().zip(right.iter().copied()).enumerate() {
+            assert_eq!(
+                a.cmp(&b),
+                expected_ord,
+                "expected left {a} {expected_ord:?} {b} at index {idx}{ctx}",
+                ctx = ctx()
+            );
+        }
+    }
     // there is a pattern the outputs seem to follow:
     // [player 1 loses] [player 2 loses] [ties]
     // as long as the wins add up after ties,
@@ -53,31 +82,44 @@ pub fn solve(game: Game) -> Option<Solution> {
     if game.total_wins() != non_tied {
         return None;
     }
-    let mut player1 = Vec::new();
-    let mut player2 = Vec::new();
     let Game { a, b, .. } = game;
+    let mut player1 = Vec::with_capacity(game.n as usize);
+    let mut player2 = Vec::with_capacity(game.n as usize);
     // we need to come up with three sequences of pairs x, y, z s.t.
     // x[i].0 < x[i].1
     // y[i].0 > y[i].1
     // z[i].0 == z[i].0
-    // with |x|=b, |y|=a, |z|=n-a-b
-    // picking z is easy as we just take the highest number
+    // with |x|=b, |y|=a, |z|=n-a-b=ties
+    // picking z is easy as we just take the highest `ties` numbers
     // for x1 we pick the lowest numbers 1..=b, for x2 we pick (a + 1)..=a+b
     // for y2 we pick the higher numbers (b+1)..=(a+b), for y2 we pick (b+1)..=(a+b)
     for x in 1..=b {
         player1.push(x);
         player2.push(a + x);
     }
+    assert_comparison(Ordering::Less, b as usize, &player1, &player2);
     for y in 1..=a {
         player1.push(b + y);
         player2.push(y);
     }
+    assert_comparison(
+        Ordering::Greater,
+        a as usize,
+        &player1[b as usize..],
+        &player2[b as usize..],
+    );
     assert_eq!(player1.len(), non_tied as usize);
     assert_eq!(player2.len(), non_tied as usize);
     for offset in 1..=ties {
         player1.push(non_tied + offset);
         player2.push(non_tied + offset);
     }
+    assert_comparison(
+        Ordering::Equal,
+        ties as usize,
+        &player1[non_tied as usize..],
+        &player2[non_tied as usize..],
+    );
     assert_eq!(player1.len(), game.n as usize);
     assert_eq!(player2.len(), game.n as usize);
     let sol = Solution {
