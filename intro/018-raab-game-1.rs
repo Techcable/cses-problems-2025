@@ -41,6 +41,14 @@ pub struct Solution {
     pub left: Vec<u32>,
     pub right: Vec<u32>,
 }
+impl From<(&[u32], &[u32])> for Solution {
+    fn from(value: (&[u32], &[u32])) -> Self {
+        Solution {
+            left: value.0.to_vec(),
+            right: value.1.to_vec(),
+        }
+    }
+}
 
 pub fn solve(game: Game) -> Option<Solution> {
     assert!(game.n > 0);
@@ -234,6 +242,7 @@ impl std::error::Error for GameParseError {}
 #[cfg(test)]
 mod test {
     use super::{solve, Game, Solution};
+    use itertools::Itertools;
 
     #[track_caller]
     fn verify_no_sol(game: Game) {
@@ -241,21 +250,35 @@ mod test {
     }
     #[track_caller]
     fn verify_sol(game: Game, x: &[u32], y: &[u32]) {
-        let sol = solve(game);
-        eprintln!("{sol:?} for {game:?}");
-        assert_eq!(
-            sol,
-            Some(Solution {
-                left: x.to_vec(),
-                right: y.to_vec(),
-            })
+        verify_sol_any(game, [(x, y)]);
+    }
+    type SolPair<'a> = (&'a [u32], &'a [u32]);
+    fn verify_sol_any<const N: usize>(game: Game, possible_solutions: [SolPair; N]) {
+        let possible_solutions: [_; N] = possible_solutions
+            .iter()
+            .copied()
+            .map(Solution::from)
+            .collect_array::<N>()
+            .unwrap();
+        let actual_sol = solve(game);
+        assert!(
+            actual_sol
+                .as_ref()
+                .is_some_and(|sol| possible_solutions.contains(sol)),
+            "solution {actual_sol:?} is not one of the expected solutions {possible_solutions:?}"
         );
     }
 
     /// Test the official example.
     #[test]
     fn example() {
-        verify_sol(Game::new(4, 1, 2), &[1, 4, 3, 2], &[2, 1, 3, 4]);
+        verify_sol_any(
+            Game::new(4, 1, 2),
+            [
+                (&[1, 4, 3, 2], &[2, 1, 3, 4]), // official answer
+                (&[1, 2, 3, 4], &[2, 3, 1, 4]), // another possibility: win2, win2, win1, tie
+            ],
+        );
         verify_no_sol(Game::new(2, 0, 1));
         verify_sol(Game::new(3, 0, 0), &[1, 2, 3], &[1, 2, 3]);
         verify_sol(Game::new(2, 1, 1), &[1, 2], &[2, 1]);
