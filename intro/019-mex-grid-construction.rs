@@ -68,12 +68,16 @@ mod matrix {
     }
     impl<const ROWS: usize, const COLS: usize, T> From<[[T; COLS]; ROWS]> for Matrix<T> {
         fn from(orig: [[T; COLS]; ROWS]) -> Self {
-            let mut vals: Vec<Vec<Option<T>>> = orig.into_iter()
+            let mut vals: Vec<Vec<Option<T>>> = orig
+                .into_iter()
                 .map(|row| row.into_iter().map(|item| Some(item)).collect())
                 .collect();
             Matrix::from_fn(
-                MatrixSize { rows: ROWS, cols: COLS },
-                |row, col| vals[row][col].take().unwrap()
+                MatrixSize {
+                    rows: ROWS,
+                    cols: COLS,
+                },
+                |row, col| vals[row][col].take().unwrap(),
             )
         }
     }
@@ -158,6 +162,23 @@ mod matrix {
             &mut self.items[self.size.raw_index(row, col)]
         }
     }
+    /// Displays a matrix with newlines separating rows and spaces separating columns
+    impl<T: Display> Display for Matrix<T> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            for row in 0..self.size.rows {
+                if row > 0 {
+                    f.write_char('\n')?;
+                }
+                for col in 0..self.size.cols {
+                    if col > 0 {
+                        f.write_char(' ')?;
+                    }
+                    write!(f, "{}", self[(row, col)])?;
+                }
+            }
+            Ok(())
+        }
+    }
     impl<T: Debug> Debug for Matrix<T> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             struct RowDebug<'a, T: 'a> {
@@ -171,7 +192,7 @@ mod matrix {
                             (0..self.matrix.size.cols).map(|col| &self.matrix[(self.row, col)]),
                         )
                         .finish()?;
-                    if self.row + 1 < self.matrix.size.rows {
+                    if self.row + 1 < self.matrix.size.rows && !f.alternate() {
                         f.write_char('\n')?;
                     }
                     Ok(())
@@ -261,6 +282,6 @@ mod tests {
                 [3, 2, 1, 0, 7],
                 [4, 5, 6, 7, 0]
             ])
-        )
+        );
     }
 }
