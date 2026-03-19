@@ -57,6 +57,7 @@ pub fn problem(final_size: usize) -> Matrix<u32> {
 }
 
 mod matrix {
+    use std::cell::RefCell;
     use std::fmt::{self, Debug, Display, Write};
     use std::ops::{Index, IndexMut};
 
@@ -68,20 +69,48 @@ mod matrix {
     }
     impl<const ROWS: usize, const COLS: usize, T> From<[[T; COLS]; ROWS]> for Matrix<T> {
         fn from(orig: [[T; COLS]; ROWS]) -> Self {
-            let mut vals: Vec<Vec<Option<T>>> = orig
-                .into_iter()
-                .map(|row| row.into_iter().map(|item| Some(item)).collect())
-                .collect();
-            Matrix::from_fn(
+            Self::from_nested_iters(
                 MatrixSize {
                     rows: ROWS,
                     cols: COLS,
                 },
-                |row, col| vals[row][col].take().unwrap(),
+                orig,
             )
         }
     }
     impl<T> Matrix<T> {
+        pub fn from_nested_iters<R, C>(size: MatrixSize, rows: R) -> Self
+        where
+            R: IntoIterator<Item = C>,
+            C: IntoIterator<Item = T>,
+        {
+            let num_entries = size.total_entries();
+            let mut res = Vec::with_capacity(num_entries);
+            let mut rows = rows.into_iter();
+            for row in 0..size.rows {
+                let mut cols = match rows.next() {
+                    Some(cols) => cols.into_iter(),
+                    None => panic!("Expected {} rows but got only {row}", size.rows),
+                };
+                for col in 0..size.cols {
+                    let Some(item) = cols.next() else {
+                        panic!(
+                            "Expected {} columns for row {row} but got only {col}",
+                            size.cols
+                        );
+                    };
+                    assert_eq!(res.len(), size.raw_index(row, col));
+                    res.push(item);
+                }
+                expect_no_more(cols, size.cols, format_args!("columns for row {row}"));
+            }
+            expect_no_more(rows, size.rows, "rows");
+            assert_eq!(res.len(), num_entries);
+            Matrix {
+                items: res.into_boxed_slice(),
+                size,
+            }
+        }
         pub fn from_defaults(size: MatrixSize) -> Self
         where
             T: Default,
@@ -94,18 +123,15 @@ mod matrix {
         {
             Self::from_fn(size, |_, _| element.clone())
         }
-        pub fn from_fn(size: MatrixSize, mut f: impl FnMut(usize, usize) -> T) -> Self {
-            let num_entries = size.total_entries();
-            let mut res = Vec::with_capacity(num_entries);
-            for (row, col) in size.all_indices() {
-                assert_eq!(res.len(), size.raw_index(row, col));
-                res.push(f(row, col));
-            }
-            assert_eq!(res.len(), num_entries);
-            Matrix {
-                items: res.into_boxed_slice(),
+        pub fn from_fn(size: MatrixSize, f: impl FnMut(usize, usize) -> T) -> Self {
+            let f = RefCell::new(f);
+            Self::from_nested_iters(
                 size,
-            }
+                (0..size.rows).map(|row| {
+                    let f = &f;
+                    (0..size.cols).map(move |col| f.borrow_mut()(row, col))
+                }),
+            )
         }
 
         pub fn set_row(&mut self, row: usize, entries: impl IntoIterator<Item = T>) {
@@ -135,15 +161,19 @@ mod matrix {
                 };
                 self[(row, col)] = item;
             }
-            if entries.next().is_some() {
-                let actual_count = count.saturating_add(1usize).saturating_add(entries.count());
-                panic!("Expected at most {count} items, but got {actual_count}")
-            }
+            expect_no_more(entries, count, "items");
         }
 
         #[inline]
         pub fn size(&self) -> MatrixSize {
             self.size
+        }
+    }
+    #[track_caller]
+    fn expect_no_more<T>(mut iter: impl Iterator<Item = T>, count: usize, desc: impl Display) {
+        if iter.next().is_some() {
+            let actual_count = count.saturating_add(1usize).saturating_add(iter.count());
+            panic!("Expected at most {count} {desc}, but got {actual_count}")
         }
     }
     impl<T> Index<(usize, usize)> for Matrix<T> {
@@ -269,7 +299,9 @@ mod matrix {
 
 #[cfg(test)]
 mod tests {
-    use crate::matrix::Matrix;
+    use crate::matrix::{Matrix, MatrixSize};
+    use indoc::indoc;
+    use similar_asserts::assert_eq;
 
     #[test]
     fn example() {
@@ -283,5 +315,35 @@ mod tests {
                 [4, 5, 6, 7, 0]
             ])
         );
+    }
+
+    #[test]
+    fn test2() {
+        let expected = parse_output(
+            10,
+            indoc!(
+                "0 1 2 3 4 5 6 7 8 9
+            1 0 3 2 5 4 7 6 9 8
+            2 3 0 1 6 7 4 5 10 11
+            3 2 1 0 7 6 5 4 11 10
+            4 5 6 7 0 1 2 3 12 13
+            5 4 7 6 1 0 3 2 13 12
+            6 7 4 5 2 3 0 1 14 15
+            7 6 5 4 3 2 1 0 15 14
+            8 9 10 11 12 13 14 15 0 1
+            9 8 11 10 13 12 15 14 1 0"
+            ),
+        );
+        assert_eq!(super::problem(10), expected);
+    }
+    fn parse_output(n: usize, s: &str) -> Matrix<u32> {
+        let lines = s.trim().lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), n);
+        Matrix::from_nested_iters(
+            MatrixSize::square(n),
+            lines
+                .iter()
+                .map(|line| line.split_whitespace().map(|s| s.parse::<u32>().unwrap())),
+        )
     }
 }
