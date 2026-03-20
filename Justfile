@@ -18,5 +18,6 @@ check-format:
     cargo fmt --check --all
     typos
 
+[env("CLICOLOR_FORCE", "1")] # fixes colors for similar-assertions
 test: && _check check-format
     cargo nextest run --all
