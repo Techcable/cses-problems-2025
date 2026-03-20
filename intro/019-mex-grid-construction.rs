@@ -305,15 +305,15 @@ mod tests {
 
     #[test]
     fn example() {
-        assert_eq!(
+        check_equal(
             super::problem(5),
             Matrix::from([
                 [0, 1, 2, 3, 4],
                 [1, 0, 3, 2, 5],
                 [2, 3, 0, 1, 6],
                 [3, 2, 1, 0, 7],
-                [4, 5, 6, 7, 0]
-            ])
+                [4, 5, 6, 7, 0],
+            ]),
         );
     }
 
@@ -334,7 +334,17 @@ mod tests {
             9 8 11 10 13 12 15 14 1 0"
             ),
         );
-        assert_eq!(super::problem(10), expected);
+        check_equal(super::problem(10), expected);
+    }
+    #[track_caller]
+    #[allow(clippy::needless_pass_by_value)] // can still pass reference if desired
+    fn check_equal<T: ToString + Eq>(actual: T, expected: T) {
+        if actual != expected {
+            assert_eq!(
+                actual: actual.to_string(),
+                expected: expected.to_string()
+            );
+        }
     }
     fn parse_output(n: usize, s: &str) -> Matrix<u32> {
         let lines = s.trim().lines().collect::<Vec<_>>();
