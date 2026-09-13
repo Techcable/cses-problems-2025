@@ -23,7 +23,7 @@ fn mul_mod(a: u32, b: u32, modulo: u32) -> u32 {
     (u64::from(a).wrapping_mul(b as u64) % (modulo as u64)) as u32
 }
 
-/// Exponentiation by squaring, modulo [`MODULUS`].
+/// Exponentiation by squaring, modulo the const param `MODULUS`.
 ///
 /// Code based off the implementation in [`u32::pow`].
 fn pow_mod<const MODULUS: u32>(mut base: u32, mut exp: u32) -> u32 {
