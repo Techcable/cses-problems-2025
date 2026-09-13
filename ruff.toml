@@ -1,0 +1,8 @@
+exclude = [
+    # code added before formatting enabled
+    "misc/snippets/import_zipfile_tests.py"
+]
+line-length = 120
+target-version = "py312" # python 3.12 is a good baseline
+# keep in .cache subdir to avoid bloating `ls -A`
+cache-dir = ".cache/ruff"

@@ -21,7 +21,7 @@ itertools = "0.14"
 proptest = "1"
 # seems to give slightly better output than pretty_assertions,
 # but unfortunately disables colors with cargo nextest (see issue mitsuhiko/similar-asserts#10)
-# The latter can be fixed using `CLICOLOR_FORCE=1`, which is set automatically by `just test`.
+# The latter can be fixed using `CLICOLOR_FORCE=1`, which is set automatically by `inv test`.
 similar-asserts = "1.7"
 
 [workspace.lints.clippy]
