@@ -3,6 +3,6 @@
 slow-timeout = "1s"
 
 [[profile.default.overrides]]
-filter = 'test(timeout_*)'
+filter = "test(timeout_*)"
 # CSES only gives us 1 second, so timeout after three
 slow-timeout = { period = "1s", terminate-after = 3 }

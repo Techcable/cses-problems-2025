@@ -12,6 +12,7 @@ msrv:
 
 format:
     cargo fmt --all
+    tombi format
     typos
 
 check-format:

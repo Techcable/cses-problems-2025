@@ -1,25 +1,25 @@
 [package]
 name = "cses-problems-intro"
-description = "The introductory CSES problems"
 version.workspace = true
-edition.workspace = true
 authors.workspace = true
+edition.workspace = true
 rust-version.workspace = true
+description = "The introductory CSES problems"
 publish.workspace = true
+
+[[bench]]
+bench = false
+harness = false
+name = "binomial_coefficients"
 
 [dependencies]
 rand.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
-itertools.workspace = true
 indoc.workspace = true
+itertools.workspace = true
 similar-asserts.workspace = true
-
-[[bench]]
-name = "binomial_coefficients"
-harness = false
-bench = false
 
 [lints]
 workspace = true
