@@ -244,8 +244,9 @@ impl std::error::Error for GameParseError {}
 
 #[cfg(test)]
 mod test {
-    use super::{solve, Game, Solution};
     use itertools::Itertools;
+
+    use super::{Game, Solution, solve};
 
     #[track_caller]
     fn verify_no_sol(game: Game) {

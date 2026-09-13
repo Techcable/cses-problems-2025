@@ -1,6 +1,7 @@
-use multiset::NumberMultiSet;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::ops::ControlFlow;
+
+use multiset::NumberMultiSet;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
@@ -64,7 +65,7 @@ impl Hasher for Fnv1Hash {
     }
     #[inline]
     fn finish(&self) -> u64 {
-        self.0 .0
+        self.0.0
     }
 }
 
@@ -226,7 +227,8 @@ mod multiset {
     //! This is in its own module for better encapsulation.
 
     use std::cmp::Ordering;
-    use std::collections::{btree_map, btree_map::Entry, BTreeMap};
+    use std::collections::btree_map::Entry;
+    use std::collections::{BTreeMap, btree_map};
     use std::num::NonZeroUsize;
     use std::ops::{Bound, RangeBounds, RangeInclusive};
 

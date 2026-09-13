@@ -1,6 +1,7 @@
+use std::fmt::Display;
+
 use self::matrix::Matrix;
 use crate::matrix::MatrixSize;
-use std::fmt::Display;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
@@ -299,9 +300,10 @@ mod matrix {
 
 #[cfg(test)]
 mod tests {
-    use crate::matrix::{Matrix, MatrixSize};
     use indoc::indoc;
     use similar_asserts::assert_eq;
+
+    use crate::matrix::{Matrix, MatrixSize};
 
     #[test]
     fn example() {

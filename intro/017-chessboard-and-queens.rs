@@ -1,5 +1,6 @@
-use chess_matrix::{ChessBitMatrix, ChessMatrix, MatrixIndex};
 use std::fmt::{Debug, Formatter};
+
+use chess_matrix::{ChessBitMatrix, ChessMatrix, MatrixIndex};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
@@ -495,8 +496,9 @@ pub mod chess_matrix {
 
 #[cfg(test)]
 mod test {
-    use super::problem;
     use indoc::indoc;
+
+    use super::problem;
 
     const EXAMPLE_INPUT_STR: &str = indoc!(
         "........

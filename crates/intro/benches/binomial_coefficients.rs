@@ -1,7 +1,7 @@
 //! What is the most efficient way to compute binomial coefficients?
 //!
 //! Result: The multiplicative method is orders of magnitude faster than the recursive method.
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 /// Compute the binomial coefficient using recursion,
 /// similar to using pascal's triangle.

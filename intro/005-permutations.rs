@@ -62,8 +62,9 @@ fn is_conflicting(a: u32, b: u32) -> bool {
 #[cfg(test)]
 mod test {
     #![allow(clippy::pedantic, clippy::all)] // already submitted & written before clippy was run with --tests
-    use super::*;
     use itertools::Itertools;
+
+    use super::*;
 
     #[test]
     fn edge_case_conflicts() {

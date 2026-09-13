@@ -151,8 +151,9 @@ pub fn binomial_coefficient(n: u32, k: u32) -> u64 {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use indoc::indoc;
+
+    use super::*;
 
     #[test]
     fn binomial_coefficients() {

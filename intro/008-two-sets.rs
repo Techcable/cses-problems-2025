@@ -1,6 +1,7 @@
-use crate::set::NumberSet;
 use std::cmp::Ordering;
 use std::ops::{Bound, ControlFlow, Range, RangeBounds, RangeInclusive};
+
+use crate::set::NumberSet;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
@@ -206,9 +207,10 @@ mod set {
     //! Defines the [`NumberSet`] type.
     //!
     //! This is in its own module for better encapsulation.
-    use super::sum_range;
-    use std::collections::{btree_set, BTreeSet};
+    use std::collections::{BTreeSet, btree_set};
     use std::ops::{Bound, Range, RangeInclusive};
+
+    use super::sum_range;
 
     #[derive(Clone, Debug)]
     pub struct NumberSet {

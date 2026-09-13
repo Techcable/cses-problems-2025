@@ -1,7 +1,8 @@
-use crate::bitstring::SmallBitString;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
+
+use crate::bitstring::SmallBitString;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::io::read_to_string(std::io::stdin())?;
@@ -124,8 +125,9 @@ pub fn compute_hamming_distance(a: SmallBitString, b: SmallBitString) -> usize {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use std::collections::HashSet;
+
+    use super::*;
 
     #[track_caller]
     fn verify_grey_code(n: u32) -> GreyCode {
@@ -318,11 +320,7 @@ mod bitstring {
     /// Get the character corresponding to the specified bit.
     #[inline]
     pub fn bit_to_char(c: bool) -> char {
-        if c {
-            '1'
-        } else {
-            '0'
-        }
+        if c { '1' } else { '0' }
     }
     /// Get the bit corresponding to the specified character.
     #[inline]

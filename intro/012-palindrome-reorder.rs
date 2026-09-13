@@ -65,7 +65,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{is_palindrome, problem, MAX_INPUT};
+    use crate::{MAX_INPUT, is_palindrome, problem};
 
     /// Tests the [`is_palindrome`] function.
     #[test]
