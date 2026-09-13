@@ -14,15 +14,15 @@ publish = false
 # What CSES supports - https://cses.fi/howto/
 rand = "=0.8.4"
 
-criterion = "0.7"
+criterion = "0.8"
 # Useful for testing
 indoc = "2"
-itertools = "0.14"
+itertools = "0.15"
 proptest = "1"
 # seems to give slightly better output than pretty_assertions,
 # but unfortunately disables colors with cargo nextest (see issue mitsuhiko/similar-asserts#10)
 # The latter can be fixed using `CLICOLOR_FORCE=1`, which is set automatically by `inv test`.
-similar-asserts = "1.7"
+similar-asserts = "2"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
