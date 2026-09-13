@@ -19,6 +19,7 @@ rand.workspace = true
 criterion.workspace = true
 indoc.workspace = true
 itertools.workspace = true
+proptest.workspace = true
 similar-asserts.workspace = true
 
 [lints]

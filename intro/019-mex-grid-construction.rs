@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use self::matrix::Matrix;
+use crate::bitset::SmallBitset;
 use crate::matrix::MatrixSize;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,26 +36,106 @@ pub const MAX_SIZE: usize = 100;
 const _: () = {
     assert!((MAX_SIZE as u32).checked_pow(2).is_some());
 };
-pub fn problem(final_size: usize) -> Matrix<u32> {
+pub fn problem(final_size: usize) -> Matrix<usize> {
     let final_matrix_size = MatrixSize::square(final_size);
-    let mut res = Matrix::repeated(final_matrix_size, u32::MAX);
-    assert!((final_size as u64) < u32::MAX as u64);
-    for size in 1..=final_size {
-        let is_increasing = size % 2 == 1;
-        let tgt_row = size - 1;
-        let tgt_col = size - 1;
-        let size = u32::try_from(size).unwrap();
-        if is_increasing {
-            let items = ((size - 1)..(size + size - 2)).chain(std::iter::once(0));
-            res.set_row(tgt_row, items.clone());
-            res.set_col(tgt_col, items);
-        } else {
-            let items = (0..size).rev();
-            res.set_row(tgt_row, items.clone());
-            res.set_col(tgt_col, items);
+    let mut res = Matrix::repeated(final_matrix_size, usize::MAX);
+    let mut used_by_col = vec![SmallBitset::new(); final_size];
+    let mut used_by_row = vec![SmallBitset::new(); final_size];
+    let mut take_next_available = |pos: (usize, usize)| {
+        let (row, col) = pos;
+        let used = &used_by_col[col] | &used_by_row[row];
+        let val = used.lowest_unset().expect("overflow 100^2 not possible");
+        eprintln!("taking {val} for ({row}, {col})");
+        res[(row, col)] = val;
+        assert!(used_by_col[col].insert(val));
+        assert!(used_by_row[row].insert(val));
+    };
+    // the radius controls which row/column we are dealing with
+    // radius=0 means we are dealing with
+    // x x x x
+    // x * * *
+    // x * * *
+    // x * * *
+    // radius=1 means we are dealing with
+    // * * * *
+    // * x x x
+    // * x * *
+    // * x * *
+    for radius in 0..final_size {
+        // determines the step within the radius
+        // both vertical and horizontal positions are set in this iteration
+        for step in radius..final_size {
+            let x = (radius, step);
+            let y = (step, radius);
+            take_next_available(x);
+            if y != x {
+                take_next_available(y);
+            }
         }
     }
     res
+}
+
+mod bitset {
+    use std::ops::BitOr;
+
+    #[derive(Clone, Debug)]
+    pub struct SmallBitset(u128);
+    impl SmallBitset {
+        const CAP: usize = 128;
+        pub fn from_bits(x: u128) -> Self {
+            SmallBitset(x)
+        }
+        pub fn new() -> Self {
+            SmallBitset(0)
+        }
+        #[inline]
+        pub fn lowest_unset(&self) -> Option<usize> {
+            if self.0 < u128::MAX {
+                // 1111 => 4
+                // 1011 => 1
+                Some(self.0.trailing_ones() as usize)
+            } else {
+                None
+            }
+        }
+        #[track_caller]
+        #[must_use]
+        pub fn contains(&self, x: usize) -> bool {
+            (self.0 & self.mask(x)) != 0
+        }
+        #[track_caller]
+        pub fn insert(&mut self, x: usize) -> bool {
+            let was_present = self.contains(x);
+            self.0 |= self.mask(x);
+            !was_present
+        }
+        #[track_caller]
+        fn mask(&self, x: usize) -> u128 {
+            1u128 << self.check_bounds(x)
+        }
+        #[track_caller]
+        #[inline]
+        #[allow(clippy::cast_possible_truncation)] // we check for this
+        fn check_bounds(&self, x: usize) -> u32 {
+            let _ = self;
+            assert!(x < Self::CAP, "index out of bounds: {x}");
+            x as u32
+        }
+    }
+    impl BitOr for SmallBitset {
+        type Output = SmallBitset;
+
+        fn bitor(self, rhs: Self) -> Self::Output {
+            SmallBitset(self.0 | rhs.0)
+        }
+    }
+    impl BitOr for &SmallBitset {
+        type Output = SmallBitset;
+        fn bitor(self, rhs: Self) -> Self::Output {
+            self.clone() | rhs.clone()
+        }
+    }
 }
 
 mod matrix {
@@ -301,9 +382,24 @@ mod matrix {
 #[cfg(test)]
 mod tests {
     use indoc::indoc;
+    use proptest::proptest;
     use similar_asserts::assert_eq;
 
+    use crate::bitset::SmallBitset;
     use crate::matrix::{Matrix, MatrixSize};
+
+    proptest! {
+        #[test]
+        fn bitset_lowest_set(bits in proptest::bits::u128::ANY) {
+            let set = SmallBitset::from_bits(bits);
+            let first_actually_missing = (0usize..128).find(|&idx| !set.contains(idx));
+            assert_eq!(
+                first_actually_missing,
+                set.lowest_unset(),
+                "{set:?}"
+            );
+        }
+    }
 
     #[test]
     fn example() {
@@ -348,14 +444,14 @@ mod tests {
             );
         }
     }
-    fn parse_output(n: usize, s: &str) -> Matrix<u32> {
+    fn parse_output(n: usize, s: &str) -> Matrix<usize> {
         let lines = s.trim().lines().collect::<Vec<_>>();
         assert_eq!(lines.len(), n);
         Matrix::from_nested_iters(
             MatrixSize::square(n),
             lines
                 .iter()
-                .map(|line| line.split_whitespace().map(|s| s.parse::<u32>().unwrap())),
+                .map(|line| line.split_whitespace().map(|s| s.parse::<usize>().unwrap())),
         )
     }
 }
